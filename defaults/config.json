@@ -1,0 +1,56 @@
+{
+    "local_mqtt": {
+        "ip_address": "localhost",
+        "port": 1883,
+        "user": "DerBenutzer",
+        "password": "DasGeheimesPasswort"
+    },
+    "cloud_mqtt": {
+        "web_address": "DieMQTTBrokerWebAdresse",
+        "port": 8883,
+        "user": "DerBenutzer",
+        "password": "DasGeheimesPasswort"
+    },
+    "leds": {
+        "FOB": {
+            "hand": 17,
+            "off": 27,
+            "auto": 22,
+            "action": 10
+        },
+        "FUB": {
+            "hand": 23,
+            "off": 24,
+            "auto": 25,
+            "action": 11
+        },
+        "FPR": {
+            "hand": 12,
+            "off": 16,
+            "auto": 20,
+            "action": 13
+        },
+        "error": 21
+    },
+    "buttons": {
+        "FOB": {
+            "hand": 5,
+            "off": 6,
+            "auto": 13
+        },
+        "FUB": {
+            "hand": 19,
+            "off": 26,
+            "auto": 20
+        },
+        "FPR": {
+            "hand": 21,
+            "off": 20,
+            "auto": 16
+        }
+    },
+    "authorized_users": [
+        "+491234567890",
+        "+491234567891"
+    ]
+}

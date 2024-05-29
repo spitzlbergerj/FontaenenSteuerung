@@ -1,0 +1,15 @@
+[Unit]
+Description=MQTT Logging
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/pi/FontaenenSteuerung/mqtt/mqtt-logging.py
+WorkingDirectory=/home/pi/FontaenenSteuerung/mqtt
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=pi
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,44 @@
+#!/bin/sh
+#
+# Sensible Daten sollen aus Dateien entfernt werden
+
+# Pfad zu den Dateien und zum Backup-Verzeichnis
+CONFIG_JSON="defaults/config.json"
+BACKUP_DIR=".git_sensible_backup"
+
+# Sicherstellen, dass das Backup-Verzeichnis existiert
+mkdir -p "$BACKUP_DIR"
+
+# Backup-Funktion
+backup_files() {
+    if [ -f "$1" ]; then
+        cp "$1" "$BACKUP_DIR/$(basename $1).backup"
+    else
+        echo "Datei $1 nicht gefunden: $1"
+        exit 1
+    fi
+}
+
+# Dateien vor der Bearbeitung sichern
+backup_files "$CONFIG_JSON"
+
+# Funktion, um die JSON-Datei zu bearbeiten
+update_json() {
+    if [ -f "$1" ]; then
+        sed -i 's/"web_address": "[^"]*"/"web_address": "DieMQTTBrokerWebAdresse"/' "$1"
+        sed -i 's/"user": "[^"]*"/"user": "DerBenutzer"/' "$1"
+        sed -i 's/"password": "[^"]*"/"password": "DasGeheimesPasswort"/' "$1"
+        sed -i 's/"authorized_users": \[[^]]*\]/"authorized_users": ["DieTelefonnummerImFormat+49xxx"]/' "$1"
+    else
+        echo "Datei $1 nicht gefunden."
+        exit 1
+    fi
+}
+
+# Dateien aktualisieren
+update_json "$CONFIG_JSON"
+
+# Fügen Sie die geänderten Dateien dem Commit hinzu
+git add "$CONFIG_JSON"
+
+exit 0
