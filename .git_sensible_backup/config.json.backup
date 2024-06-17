@@ -2,14 +2,14 @@
     "local_mqtt": {
         "ip_address": "localhost",
         "port": 1883,
-        "user": "",
-        "password": ""
+        "user": "DerBenutzer",
+        "password": "DasGeheimesPasswort"
     },
     "cloud_mqtt": {
-        "web_address": "fbaaeb99.ala.us-east-1.emqxsl.com",
+        "web_address": "DieMQTTBrokerWebAdresse",
         "port": 8883,
-        "user": "FontaenenSteuerungMQTT",
-        "password": "2hHihvqNK9GQ!YakaDqw"
+        "user": "DerBenutzer",
+        "password": "DasGeheimesPasswort"
     },
     "leds": {
         "FOB": {
