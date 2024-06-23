@@ -1,95 +1,124 @@
 import time
+from gpiozero import Button
 import board
 import busio
-from digitalio import Direction, Pull
-from RPi import GPIO
+import digitalio
 from adafruit_mcp230xx.mcp23017 import MCP23017
 
-class LEDController:
-    def __init__(self, mcp, led_pins):
-        self.led_pins = [mcp.get_pin(pin) for pin in led_pins]
-        for pin in self.led_pins:
-            pin.switch_to_output(value=False)
-
-    def turn_on(self, index):
-        self.led_pins[index].value = True
-
-    def turn_off(self, index):
-        self.led_pins[index].value = False
-
-    def toggle(self, index):
-        self.led_pins[index].value = not self.led_pins[index].value
-
-# Initialisierung des I2C-Busses und der MCP23017
+# Initialize the I2C bus:
 i2c = busio.I2C(board.SCL, board.SDA)
+
+# Create instances of MCP23017 class
 mcp0 = MCP23017(i2c, address=0x20)
 mcp1 = MCP23017(i2c, address=0x21)
 
-# LED-Pins Konfiguration (Gruppiert)
-led_pins_mcp0 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15]
-led_pins_mcp1 = []  # Falls es LEDs an mcp1 gibt
+# Define Taster pins for each motor
+motor_taster_pins = {
+	'Parterre': {
+		'mcp': mcp0,
+		'pins': [12, 13, 14]  # Taster PA_auto, PA_aus, PA_hand
+	},
+	'Unteres Becken': {
+		'mcp': mcp1,
+		'pins': [0, 1, 2]  # Taster UB_auto, UB_aus, UB_hand
+	},
+	'Oberes Becken': {
+		'mcp': mcp1,
+		'pins': [3, 4, 5]  # Taster OB_auto, OB_aus, OB_hand
+	}
+}
 
-# Taster-Pins Konfiguration (Gruppiert)
-button_pins_mcp0 = [12, 13, 14]
-button_pins_mcp1 = [0, 1, 2, 3, 4, 5]
+# Define LED pins for each motor
+motor_led_pins = {
+	'Parterre': [0, 1, 2, 3],  # LEDs PA_active, PA_auto, PA_aus, PA_hand
+	'Unteres Becken': [4, 5, 6, 7],  # LEDs UB_active, UB_auto, UB_aus, UB_hand
+	'Oberes Becken': [8, 9, 10, 11],  # LEDs OB_active, OB_auto, OB_aus, OB_hand
+	'Fehler': [15]  # Fehler-LED ERR_active
+}
 
-# LED-Controller initialisieren
-led_controller_mcp0 = LEDController(mcp0, led_pins_mcp0)
-led_controller_mcp1 = LEDController(mcp1, led_pins_mcp1)  # Falls es LEDs an mcp1 gibt
+# Define Interrupt GPIOs for each MCP23017
+interrupt_gpios = {
+	mcp0: {'IA': 22, 'IB': 23},
+	mcp1: {'IA': 24, 'IB': 25}
+}
 
-# Interrupt-Konfiguration nur für Taster-Pins
-interrupt_enable_mcp0 = sum([1 << pin for pin in button_pins_mcp0])
-interrupt_enable_mcp1 = sum([1 << pin for pin in button_pins_mcp1])
+# Function to configure Taster pins
+def configure_taster_pins(mcp, pins):
+	taster_pins = []
+	for pin_num in pins:
+		pin = mcp.get_pin(pin_num)
+		pin.direction = digitalio.Direction.INPUT
+		pin.pull = digitalio.Pull.UP
+		taster_pins.append(pin)
+		print(f"Am MCP {mcp} wurde Pin {pin_num} gesetzt")
+	return taster_pins
 
-mcp0.interrupt_enable = interrupt_enable_mcp0
-mcp0.interrupt_configuration = interrupt_enable_mcp0  # Interrupt nur bei Wertänderung auf default_value
-mcp0.default_value = interrupt_enable_mcp0  # default_value auf HIGH (Pull-up)
-mcp0.io_control = 0x44  # Interrupt als Open Drain und gespiegelt
-mcp0.clear_ints()  # Interrupts initial löschen
+# Function to configure LED pins
+def configure_led_pins(mcp, pins):
+	led_pins = []
+	for pin_num in pins:
+		pin = mcp.get_pin(pin_num)
+		pin.switch_to_output(value=False)
+		led_pins.append(pin)
+	return led_pins
 
-mcp1.interrupt_enable = interrupt_enable_mcp1
-mcp1.interrupt_configuration = interrupt_enable_mcp1  # Interrupt nur bei Wertänderung auf default_value
-mcp1.default_value = interrupt_enable_mcp1  # default_value auf HIGH (Pull-up)
-mcp1.io_control = 0x44  # Interrupt als Open Drain und gespiegelt
-mcp1.clear_ints()  # Interrupts initial löschen
+# Configure Taster pins for each motor
+for motor, config in motor_taster_pins.items():
+	config['taster_pins'] = configure_taster_pins(config['mcp'], config['pins'])
 
-# GPIO-Setup für Interrupt-Pins
-GPIO.setmode(GPIO.BCM)
-interrupt_pin_mcp0 = 17  # Raspberry Pi Pin für Interrupt von mcp0
-interrupt_pin_mcp1 = 27  # Raspberry Pi Pin für Interrupt von mcp1
+# Configure LED pins for each motor
+leds = {}
+for motor, pins in motor_led_pins.items():
+	leds[motor] = configure_led_pins(mcp0, pins)
 
-GPIO.setup(interrupt_pin_mcp0, GPIO.IN, GPIO.PUD_UP)
-GPIO.setup(interrupt_pin_mcp1, GPIO.IN, GPIO.PUD_UP)
+# Enable interrupts only on specific pins
+for motor, config in motor_taster_pins.items():
+	mcp = config['mcp']
+	pins = config['pins']
+	interrupt_mask = sum(1 << pin for pin in pins)
+	mcp.interrupt_enable |= interrupt_mask
+	mcp.interrupt_configuration |= interrupt_mask
+	print(f"Interrupt-Konfiguration für MCP {mcp}: {format(mcp.interrupt_enable, '016b')}")
+	
+# Configure interrupt handling
+mcp0.io_control = 0x44  # Interrupt as open drain and mirrored
+mcp1.io_control = 0x44  # Interrupt as open drain and mirrored
 
-# Callback-Funktion für Interrupts
-def handle_interrupt(channel):
-    if channel == interrupt_pin_mcp0:
-        for pin_flag in mcp0.int_flag:
-            if pin_flag in button_pins_mcp0:
-                print(f"Interrupt mcp0 - Pin: {pin_flag} geändert auf: {mcp0.get_pin(pin_flag).value}")
-                led_controller_mcp0.toggle(button_pins_mcp0.index(pin_flag))
-        mcp0.clear_ints()
-    elif channel == interrupt_pin_mcp1:
-        for pin_flag in mcp1.int_flag:
-            if pin_flag in button_pins_mcp1:
-                print(f"Interrupt mcp1 - Pin: {pin_flag} geändert auf: {mcp1.get_pin(pin_flag).value}")
-                led_controller_mcp1.toggle(button_pins_mcp1.index(pin_flag))
-        mcp1.clear_ints()
+# Clear all interrupts
+mcp0.clear_ints()
+mcp1.clear_ints()
 
-# GPIO Interrupts konfigurieren
+def interrupt_handler_pressed(port):
+	print(f"Interrupt on port {port}, MCP0: {mcp0.int_flag}, MCP1: {mcp1.int_flag}")
+	leds['Fehler'][0].value = True
+	"""Callback function to be called when an Interrupt occurs."""
+	for pin_flag in mcp0.int_flag:
+		print(f"MCP0 Interrupt connected to Pin: {port}")
+		print(f"MCP0 Pin number: {pin_flag} changed to: {mcp0.get_pin(pin_flag).value}")
+	for pin_flag in mcp1.int_flag:
+		print(f"MCP1 Interrupt connected to Pin: {port}")
+		print(f"MCP1 Pin number: {pin_flag} changed to: {mcp1.get_pin(pin_flag).value}")
+	time.sleep(0.2)
+	leds['Fehler'][0].value = False
+	mcp0.clear_ints()
+	mcp1.clear_ints()
+
+# RPi GPIO as interrupt pins configuration
+for mcp, gpios in interrupt_gpios.items():
+	ia_pin = gpios['IA']
+	ib_pin = gpios['IB']
+	
+	ia_button = Button(ia_pin, pull_up=True, bounce_time=0.1)
+	ib_button = Button(ib_pin, pull_up=True, bounce_time=0.1)
+	
+	ia_button.when_pressed = interrupt_handler_pressed
+	ib_button.when_pressed = interrupt_handler_pressed
+	ia_button.when_released = None
+	ib_button.when_released = None
+
 try:
-    GPIO.add_event_detect(interrupt_pin_mcp0, GPIO.FALLING, callback=handle_interrupt, bouncetime=10)
-    GPIO.add_event_detect(interrupt_pin_mcp1, GPIO.FALLING, callback=handle_interrupt, bouncetime=10)
-except RuntimeError as e:
-    print(f"Fehler beim Einrichten der Interrupts: {e}")
-
-# Hauptprogramm
-try:
-    print("Drücken Sie eine Taste, um einen Interrupt auszulösen.")
-    while True:
-        time.sleep(1)  # Main Loop
-
-except KeyboardInterrupt:
-    print("Programm beendet")
+	print("When button is pressed you'll see a message")
+	time.sleep(120)  # You could run your main while loop here.
+	print("Time's up. Finished!")
 finally:
-    GPIO.cleanup()
+	exit(1)

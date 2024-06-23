@@ -476,6 +476,10 @@ install_python_modules() {
 	run_cmd "sudo apt install python3-paho-mqtt"
 	echo " ... Flask Framework"
 	run_cmd "sudo apt install python3-flask"
+	echo " ... Python gpiozero"
+	run_cmd "sudo apt install python3-gpiozero"
+	echo " ... Python transitions"
+	run_cmd "sudo apt install python3-transitions"
 
 	# Apache für Flask konfigurieren
 	# Apache wird der Proxy, jedoch muss /phpmyadmin weiterhin erreichbar bleiben

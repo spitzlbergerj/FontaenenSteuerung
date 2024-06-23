@@ -1,6 +1,7 @@
 # LED Test am Adafruit MCP23017
 
 import time
+import sys
 from gpiozero import Button
 import board
 import busio
@@ -108,10 +109,11 @@ Tast_OB_hand.pull = digitalio.Pull.UP
 
 
 # Taster Test
+# MCP0: Pin 12, 13, 14 aktivieren
+mcp0.interrupt_enable = (1 << 12) | (1 << 13) | (1 << 14)
 
-# Interrupts auf allen Pins aktivieren
-mcp0.interrupt_enable = 0xFFFF  
-mcp1.interrupt_enable = 0xFFFF 
+# MCP1: Pin 0, 1, 2, 3, 4, 5 aktivieren
+mcp1.interrupt_enable = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5)
 
 # Interrupt Behandlung konfigurieren
 # Reaktion auf alle Changes
@@ -135,53 +137,75 @@ mcp1.io_control = 0x44
 mcp0.clear_ints() 
 mcp1.clear_ints() 
 
+def extract_gpio_number(port):
+	# Konvertiere 'port' in einen String, falls es keiner ist
+	port_str = str(port)
+	
+	# Beispiel: port_str ist ein String wie "<gpiozero.Button object on pin GPIO22, pull_up=True, is_active=True>"
+	# Wir wollen nur die GPIO-Nummer (z.B. "GPIO22") extrahieren
+	start_index = port_str.find("GPIO")
+	if start_index != -1:
+		end_index = port_str.find(",", start_index)
+		if end_index != -1:
+			return port_str[start_index:end_index]
+		else:
+			return port_str[start_index:]
+	return None
+	
 def interrupt_handler_pressed(port):
-    print(port, mcp0.int_flag, mcp1.int_flag)
-    led_ERR_active.value=True
-    """Callback function to be called when an Interrupt occurs."""
-    for pin_flag in mcp0.int_flag:
-        print("MCP0 Interrupt connected to Pin: {}".format(port))
-        print("MCP0 Pin number: {} changed to: ".format(pin_flag))
-    for pin_flag in mcp1.int_flag:
-        print("MCP1 Interrupt connected to Pin: {}".format(port))
-        print("MCP1 Pin number: {} changed to: ".format(pin_flag))
-    time.sleep(0.2)
-    led_ERR_active.value=False
-    mcp0.clear_ints() 
-    mcp1.clear_ints() 
+	print("\n")
+	gpio_number = extract_gpio_number(port)
+	print("Interrupt Handler an RPi Pin ",gpio_number, " für ", mcp0.int_flag, mcp1.int_flag)
+	"""Callback function to be called when an Interrupt occurs."""
+	for pin_flag in mcp0.int_flag:
+		print("MCP0 Interrupt connected to Pin: {}".format(gpio_number))
+		print("MCP0 Pin number: {} changed to: ".format(pin_flag))
+	for pin_flag in mcp1.int_flag:
+		print("MCP1 Interrupt connected to Pin: {}".format(gpio_number))
+		print("MCP1 Pin number: {} changed to: ".format(pin_flag))
+	mcp0.clear_ints() 
+	mcp1.clear_ints() 
+	print("cleared")
 
 
 def interrupt_handler_released(port):
-    led_PA_active.value=True
-    mcp0.clear_ints()
-    mcp1.clear_ints()
-    time.sleep(0.2)
-    led_PA_active.value=False
-    mcp0.clear_ints() 
-    mcp1.clear_ints() 
+	led_PA_active.value=True
+	mcp0.clear_ints()
+	mcp1.clear_ints()
+	time.sleep(0.2)
+	led_PA_active.value=False
+	mcp0.clear_ints() 
+	mcp1.clear_ints() 
 
 # RPi GPIO als Interrupt Pins konfigurieren
-mcp0irAPin = 23
+mcp0irAPin = 22
 mcp0irA = Button(mcp0irAPin, pull_up=True, bounce_time=0.1)
 mcp0irA.when_pressed = interrupt_handler_pressed
-mcp0irA.when_released = None
+#mcp0irA.when_released = None
+
+mcp0irBPin = 23
+mcp0irB = Button(mcp0irBPin, pull_up=True, bounce_time=0.1)
+mcp0irB.when_pressed = interrupt_handler_pressed
+#mcp0irB.when_released = None
 
 mcp1irAPin = 24
 mcp1irA = Button(mcp1irAPin, pull_up=True, bounce_time=0.1)
 mcp1irA.when_pressed = interrupt_handler_pressed
-mcp1irA.when_released = None
+#mcp1irA.when_released = None
 
-mcp1irBPin = 22
+mcp1irBPin = 25
 mcp1irB = Button(mcp1irBPin, pull_up=True, bounce_time=0.1)
 mcp1irB.when_pressed = interrupt_handler_pressed
-mcp1irB.when_released = None
+#mcp1irB.when_released = None
 
 
 try:
-    print("When button is pressed you'll see a message")
-    time.sleep(120)  # You could run your main while loop here.
-    print("Time's up. Finished!")
-finally:
-    exit(1)
-
-
+	print("When button is pressed you'll see a message")
+	while True:
+		# Hier könnte deine Hauptfunktionalität der Schleife stehen.
+		time.sleep(0.1)
+		print(".", end='', flush=True)
+		pass
+except KeyboardInterrupt:
+	print("\nExiting the loop due to KeyboardInterrupt.")
+	exit(1)
