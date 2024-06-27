@@ -1,39 +1,18 @@
-#!/usr/bin/python3
-# coding=utf-8
+#!/usr/bin/env python3
+# Skript zur Abfrage des EMQX Cloud Brokers und des lokalen Mosquitto Brokers nach neuen Kommandos und zur Verwaltung der Fontänensteuerung
 #
-# --------------------------------------------------------------------------------
-#
-# fontaenensteuerung.py
-#
-# Funktion: 
-# ==========
-# zentrales Skript für die Steuerung der Fontänenanlage mit folgenden Funktionen
-# - Aufbau der Kommunikation zum Cloud MQTT Broker
-#    - um remote Kommandos zu empfangen
-#    - um Statusnachrichten zu versenden
-#
-# - Aufbau der Kommunikation zum lokalen MQTT Broker
-#    - um anderen Skripten der Steuerung neue Zusände mitzuteilen (LED, Motoren)
-#
-# - State-Machine
+# Funktion:
+# Dieses Skript abonniert MQTT-Nachrichten vom EMQX Cloud Broker und vom lokalen Mosquitto Broker und verarbeitet neue Kommandos für die Fontänensteuerung. 
+# Es verwaltet die Zustandsmaschine für die Motorsteuerung und nutzt MQTT zur Kommunikation und zum Senden von Steuerungsbefehlen an die Motoren und LEDs.
 #
 # Änderungshistorie:
-# ===================
 # - Version 1.0.0: Initiale Version
 #
 # Autor:
-# =======
-# - Josef Spitzlberger 
-# - Robert Kaiser (hardwaretechnische Realisierung und Aufbau)
+# - [Dein Name]
 #
 # Datum:
-# =======
-# - Mai 2024
-#-------------------------------------------------------------------------------
-
-import sys
-import board
-import busio
+# - [Aktuelles Datum]
 
 import argparse
 import logging
@@ -41,87 +20,90 @@ import logging
 # -----------------------------------------------
 # Fontänensteuerung Libraries einbinden
 # -----------------------------------------------
-sys.path.append('/home/pi/FontaenenSteuerung/.lib')
-
 from FS_Communication_Class import FS_Communication
 from FS_Files_Class import FS_Files
-from FS_StateMachine_Class import MotorController, LEDController, ButtonController, FountainController
+from FS_StateMachine import FS_StateMachine
 
-
-# Initialisierung des Loggings
+# -----------------------------------------------
+# globale Variablen
+# -----------------------------------------------
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Globale Variable für Motorzustandsmaschinen
+motors = {}
+
+# -----------------------------------------------
+# Callback-Funktion zur Verarbeitung von empfangenen MQTT-Nachrichten
+# -----------------------------------------------
+def command_callback(topic, message):
+	# Parst das empfangene Kommando und extrahiert den Motorname und den Befehl
+	motor_name, command = parse_command(message)
+	if motor_name in motors:
+		motors[motor_name].handle_command(command)
+	else:
+		logging.warning(f"Unbekannter Motorname: {motor_name}")
+
+# -----------------------------------------------
+# Funktion zur Befehlsanalyse
+# -----------------------------------------------
+def parse_command(message):
+	# Parst eine empfangene Nachricht, um den Motorname und den Befehl zu extrahieren
+	parts = message.split(':')
+	if len(parts) != 2:
+		logging.error("Ungültiges Nachrichtenformat")
+		return None, None
+	return parts[0], parts[1]
+
+# -----------------------------------------------
+# Hauptfunktion
+# -----------------------------------------------
 def main():
 	# Argumente und Parameter abfragen
 	parser = argparse.ArgumentParser(description='Skript zur Abfrage des EMQX Cloud Brokers und des lokalen Mosquitto Brokers nach neuen Kommandos')
-	parser.add_argument(
-			'--config_file', 
-			type=str, 
-			default='config.json',
-			help='Pfad zur Konfigurationsdatei'
-	)
+	parser.add_argument('--config_file', type=str, help='Pfad zur Konfigurationsdatei')
 	args = parser.parse_args()
 	
 	# Konfigurationsdatei laden
-	fs_files = FS_Files(config_file=f'/home/pi/fontaenensteuerung/defaults/{args.config_file}')
-	local_mqtt_config = fs_files.get_local_mqtt_config()
-	cloud_mqtt_config = fs_files.get_cloud_mqtt_config()
+	fs_files = FS_Files(config_file=args.config_file)
+	config = fs_files.config
+	cloud_mqtt_config = cloud_mqtt_config = config['MQTT Cloud']
 
-	# MQTT-Client initialisieren
-	mqtt_client = FS_Communication(local_mqtt_config['ip_address'], cloud_mqtt_config['web_address'], 'Fontaenensteuerung', command_callback)
+	# Logging der geladenen Konfiguration
+	logging.info(f"Lokale MQTT-Konfiguration: {local_mqtt_config}")
+	logging.info(f"Cloud MQTT-Konfiguration: {cloud_mqtt_config}")
+	logging.info(f"Wartezeit für Status-Intervalle: {wait_time} Sekunden")
+	logging.info(f"LED-Konfiguration: {led_config}")
+	logging.info(f"Motor-Konfiguration: {motor_config}")
+	logging.info(f"Taster-Konfiguration: {button_config}")
 	
+	
+	# MQTT-Client initialisieren
+	fs_comm = FS_Communication(local_mqtt_config, cloud_mqtt_config, 'Fontaenensteuerung', command_callback)
+	
+	# Zustandsmaschinen für die Motoren initialisieren
+	global motors
+	motors = {
+		'FOB': FS_StateMachine('FOB', config, fs_comm),
+		'FUB': FS_StateMachine('FUB', config, fs_comm),
+		'FPA': FS_StateMachine('FPA', config, fs_comm)
+	}
+	
+	logging.info("Zustandsmaschinen für die Motoren initialisiert")
 
-	# Setup I2C
-	i2c = busio.I2C(board.SCL, board.SDA)
+	# Initialisierung der Motoren
+	for motor in motors.values():
+		motor.initialize_motor()
 
-	# Instantiate controllers
-	motor_controller_1 = MotorController(motor_id=1)
-	motor_controller_2 = MotorController(motor_id=2)
-	motor_controller_3 = MotorController(motor_id=3)
-
-	led_controller_1 = LEDController(i2c, led_pins=[0, 1, 2])
-	led_controller_2 = LEDController(i2c, led_pins=[0, 1, 2])
-	led_controller_3 = LEDController(i2c, led_pins=[0, 1, 2])
-
-	button_controller_1 = ButtonController(
-		i2c_bus_num=0x20,
-		button_pins=[3, 4, 5],
-		interrupt_pin_a=22,
-		interrupt_pin_b=23
-	)
-	button_controller_2 = ButtonController(
-		i2c_bus_num=0x21,
-		button_pins=[3, 4, 5],
-		interrupt_pin_a=24,
-		interrupt_pin_b=25
-	)
-	button_controller_3 = ButtonController(
-		i2c_bus_num=0x21,
-		button_pins=[3, 4, 5],
-		interrupt_pin_a=24,
-		interrupt_pin_b=25
-	)
+	logging.info("Motoren initialisiert")
 
 	# Starten des MQTT-Clients zum Empfangen von Nachrichten
-	# mqtt_client.start()
-
-	# Instantiate state machine
-	fountain_controller_1 = FountainController(motor_controller_1, led_controller_1, button_controller_1)
-
-	# Main loop
-	try:
-		while True:
-			if button_controller_1.is_pressed(0):
-				fountain_controller_1.to_handbetrieb()
-			elif button_controller_1.is_pressed(1):
-				fountain_controller_1.to_aus()
-			elif button_controller_1.is_pressed(2):
-				fountain_controller_1.to_automatikbetrieb()
-			time.sleep(0.1)
-	except KeyboardInterrupt:
-		pass
-
-
+	fs_comm.start()
+	
+	# Regelmäßige Abfrage der Taster
+	while True:
+		for motor in motors.values():
+			motor.check_buttons()
+		time.sleep(time_intervals.get('IntervallTaster', 0.05))
 
 if __name__ == "__main__":
 	main()
