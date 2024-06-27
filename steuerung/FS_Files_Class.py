@@ -3,7 +3,7 @@ import json
 # -----------------------------------------------
 # global variables
 # -----------------------------------------------
-json_file_path = 'config.json'
+json_file_path = '/home/pi/FontaenenSteuerung/defaults/config.json'
 
 class FS_Files:
     # -----------------------------------------------

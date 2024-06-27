@@ -9,14 +9,14 @@
 # 
 #-------------------------------------------------------------------------------
 
-from transitions import Machine
+from transitions import Machine, MachineError
 import time
 import threading
 
 # -----------------------------------------------
 # Fontänensteuerung Libraries einbinden
 # -----------------------------------------------
-from FS_LEDControll_Class import FS_LEDControl
+from FS_LEDControl_Class import FS_LEDControl
 from FS_MotorControl_Class import FS_MotorControl
 from FS_ButtonControl_Class import FS_ButtonControl
 
@@ -42,9 +42,11 @@ class FS_StateMachine:
 		self.last_direction = 0  # Letzte Bewegungsrichtung des Motors
 
 		# Initialisiert die LED- und Motorsteuerung
-		self.led_control = LEDControl(config['LEDs'][name])
-		self.motor_control = MotorControl(config)
-		self.button_control = ButtonControl(config['Taster'][name])
+		led_config = {name: config['LEDs'][name]}
+		button_config = {name: config['Taster'][name]}
+		self.led_control = FS_LEDControl(led_config)
+		self.motor_control = FS_MotorControl(config)
+		self.button_control = FS_ButtonControl(button_config)
 
 		# -----------------------------------------------
 		# Definition der Zustände
@@ -80,7 +82,7 @@ class FS_StateMachine:
 		# Initialisierung der Zustandsmaschine
 		# -----------------------------------------------
 
-		self.machine = Machine(model=self, states=states, transitions=transitions, initial='OFF', queued=True)
+		self.machine = Machine(model=self, states=states, transitions=transitions, initial='INIT', queued=True)
 
 	# -----------------------------------------------
 	# can_transition: Überprüft, ob der Motor in den nächsten Zustand wechseln kann
@@ -107,27 +109,38 @@ class FS_StateMachine:
 			if self.state in ['BLOCKED', 'TO_AUTO', 'TO_HAND', 'TO_OFF']:
 				return  # Ignoriere Befehle während eines Schaltvorgangs oder wenn blockiert
 			
-			if command.lower() == 'a':
-				self.set_auto()
-			elif command.lower() == 'h':
-				self.set_hand()
-			elif command == '0':
-				self.set_off()
-			elif command == 'b':
-				self.block()
-			elif command == 'u':
-				self.unblock()
+			try:
+				if command.lower() == 'a':
+					self.set_auto()
+				elif command.lower() == 'h':
+					self.set_hand()
+				elif command == '0':
+					self.set_off()
+				elif command == 'b':
+					self.block()
+				elif command == 'u':
+					self.unblock()
+			except MachineError as e:
+				print(f"Fehler beim Auslösen des Ereignisses {command}: {e}")
 	
 	# -----------------------------------------------
 	# check_buttons: checks the state of the buttons and triggers state transitions
 	# -----------------------------------------------
 	def check_buttons(self):
-		if self.button_control.read_button(self.name, 'auto'):
-			self.set_auto()
-		elif self.button_control.read_button(self.name, 'hand'):
-			self.set_hand()
-		elif self.button_control.read_button(self.name, 'aus'):
-			self.set_off()
+		"""
+		try:
+			if self.button_control.read_button(self.name, 'auto'):
+				self.set_auto()
+			elif self.button_control.read_button(self.name, 'hand'):
+				self.set_hand()
+			elif self.button_control.read_button(self.name, 'aus'):
+				self.set_off()
+		except MachineError as e:
+				print(f"Fehler beim Lesen der Taster für {self.name}: {e}")
+		"""
+		self.button_control.print_all_buttons()
+
+		print(f"Einheit: {self.name} Taster: Hand: {self.button_control.read_button(self.name, 'hand')} Aus: {self.button_control.read_button(self.name, 'aus')} Auto: {self.button_control.read_button(self.name, 'auto')} ")
 
 	# -----------------------------------------------
 	# on_enter_TO_AUTO: Aktionen beim Eintritt in den Zustand TO_AUTO
@@ -183,12 +196,12 @@ class FS_StateMachine:
 	def trigger_motor_control(self):
 		topic = f"motor_control/{self.name}"
 		message = f"move_to_{self.state.lower()}"
-		self.mqtt_client.publish(topic, message)
+		# self.mqtt_client.publish(topic, message)
 		print(f"Motorsteuerung für {self.name} im Zustand {self.state} ausgelöst")
 
 		# Tatsächliche Motorsteuerung
 		direction = 1 if self.state in ['TO_AUTO', 'TO_HAND'] else -1
-		self.motor_control.move_motor(self.name[-1], direction)  # Motorname z.B. 'motor1'
+		self.motor_control.move_motor(self.name, direction)  # Motorname z.B. 'motor1'
 		self.last_direction = direction
 
 		# Startet einen Thread, um den Motor nach dem Delay zu stoppen
@@ -199,14 +212,14 @@ class FS_StateMachine:
 	# -----------------------------------------------
 	def _stop_motor_after_delay(self, direction):
 		time.sleep(self.stop_delay)
-		self.motor_control.stop_motor(self.name[-1])
+		self.motor_control.stop_motor(self.name)
 		self._check_mid_position(direction)
 
 	# -----------------------------------------------
 	# _check_mid_position: checks if the motor reached the middle position and performs fine-tuning if necessary
 	# -----------------------------------------------
 	def _check_mid_position(self, direction):
-		if self.motor_control.is_in_mid_position(self.name[-1]):
+		if self.motor_control.is_in_mid_position(self.name):
 			self._perform_fine_tuning(direction)
 	
 	# -----------------------------------------------
@@ -216,7 +229,7 @@ class FS_StateMachine:
 		# Feineinstellung des Motors gemäß der Testlogik in MotorTest.py
 		# Beispiel: Selbstnachjustierung des Motors in kleinen Schritten
 		steps = self.motor_control.get_correction_steps(self.name, direction)
-		self.motor_control.perform_fine_tuning(self.name[-1], steps, direction)
+		self.motor_control.perform_fine_tuning(self.name, steps, direction)
 
 	# -----------------------------------------------
 	# trigger_led_control: sends a message to control the LEDs
@@ -225,11 +238,11 @@ class FS_StateMachine:
 		topic = f"led_control/{self.name}"
 		if self.state in ['TO_AUTO', 'TO_HAND', 'TO_OFF']:
 			message = "blink_activity_led"
-			self.led_control.blink_activity_led(self.name)
+			# self.led_control.blink_activity_led(self.name)
 		else:
 			message = f"set_led_{self.state.lower()}"
 			self.led_control.set_led(self.name, self.state.lower(), True)
-		self.mqtt_client.publish(topic, message)
+		#self.mqtt_client.publish(topic, message)
 		print(f"LED-Ansteuerung für {self.name} im Zustand {self.state} ausgelöst")
 
 	# -----------------------------------------------
@@ -244,11 +257,13 @@ class FS_StateMachine:
 	# initialize_motor: initialisiert den Motorzustand
 	# -----------------------------------------------
 	def initialize_motor(self):
-		self.motor_control.move_motor(self.name[-1], 1)  # Drehe von Auto nach Aus
-		time.sleep(2)  # Beispielwartezeit für Bewegung
-		self.motor_control.stop_motor(self.name[-1])
+		self.button_control.print_all_buttons()
+		print(f"Motor: {self.name}")
+		self.motor_control.move_motor(self.name, 1)  # Drehe von Auto nach Aus
+		time.sleep(3)  # Beispielwartezeit für Bewegung
+		self.motor_control.stop_motor(self.name)
 		time.sleep(1)  # Wartezeit zwischen den Bewegungen
-		self.motor_control.move_motor(self.name[-1], -1)  # Drehe von Hand nach Aus
-		time.sleep(2)  # Beispielwartezeit für Bewegung
-		self.motor_control.stop_motor(self.name[-1])
+		self.motor_control.move_motor(self.name, -1)  # Drehe von Hand nach Aus
+		time.sleep(3)  # Beispielwartezeit für Bewegung
+		self.motor_control.stop_motor(self.name)
 		self.initialize()  # Zustandsmaschine auf 'OFF' setzen

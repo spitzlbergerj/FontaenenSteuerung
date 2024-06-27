@@ -1,56 +1,106 @@
 {
-    "local_mqtt": {
-        "ip_address": "localhost",
-        "port": 1883,
-        "user": "DerBenutzer",
-        "password": "DasGeheimesPasswort"
+    "MQTT Cloud": {
+      "URL": "your_mqtt_broker_address",
+      "Port": 1883,
+      "User": "your_username",
+      "Passwort": "your_password"
     },
-    "cloud_mqtt": {
-        "web_address": "DieMQTTBrokerWebAdresse",
-        "port": 8883,
-        "user": "DerBenutzer",
-        "password": "DasGeheimesPasswort"
+    "MQTT lokal": {
+      "Adresse": "localhost",
+      "Port": 1883
     },
-    "leds": {
-        "FOB": {
-            "hand": 17,
-            "off": 27,
-            "auto": 22,
-            "action": 10
-        },
-        "FUB": {
-            "hand": 23,
-            "off": 24,
-            "auto": 25,
-            "action": 11
-        },
-        "FPR": {
-            "hand": 12,
-            "off": 16,
-            "auto": 20,
-            "action": 13
-        },
-        "error": 21
+    "LEDs": {
+      "FOB": {
+        "mcp": 0x20,
+        "hand": 11,
+        "aus": 10,
+        "auto": 9,
+        "aktiv": 8
+      },
+      "FUB": {
+        "mcp": 0x20,
+        "hand": 7,
+        "aus": 6,
+        "auto": 5,
+        "aktiv": 4
+      },
+      "FPR": {
+        "mcp": 0x20,
+        "hand": 3,
+        "aus": 2,
+        "auto": 1,
+        "aktiv": 0
+      },
+      "Status": {
+        "mcp": 0x20,
+        "fehler": 15
+      }
     },
-    "buttons": {
-        "FOB": {
-            "hand": 5,
-            "off": 6,
-            "auto": 13
-        },
-        "FUB": {
-            "hand": 19,
-            "off": 26,
-            "auto": 20
-        },
-        "FPR": {
-            "hand": 21,
-            "off": 20,
-            "auto": 16
-        }
+    "Taster": {
+      "FOB": {
+        "mcp": 0x21,
+        "hand": 5,
+        "aus": 4,
+        "auto": 3,
+      },
+      "FUB": {
+        "mcp": 0x21,
+        "hand": 2,
+        "aus": 1,
+        "auto": 0,
+      },
+      "FPR": {
+        "mcp": 0x20,
+        "hand": 14,
+        "aus": 13,
+        "auto": 12,
+      }
     },
-    "authorized_users": [
+    "Microswitch": {
+      "FOB": {
+        "mcp Adresse": 0x21,
+        "NC Pin": 9,
+        "NO Pin": 8
+      },
+      "FUB": {
+        "mcp Adresse": 0x21,
+        "NC Pin": 12,
+        "NO Pin": 11
+      },
+      "FPR": {
+        "mcp Adresse": 0x21,
+        "NC Pin": 15,
+        "NO Pin": 14
+      }
+    },
+    "KorrekturMitte": {
+      "FOB": {
+        "hand-aus": 10,
+        "auto-aus": 10
+      },
+      "FUB": {
+        "hand-aus": 8,
+        "auto-aus": 7
+      },
+      "FPR": {
+        "hand-aus": 11,
+        "auto-aus": 8
+      }
+    },
+    "Zeiten": {
+      "IntervallStatus": 60,
+      "IntervallTaster": 0.05,
+      "IntervallMicroswitch": 0.01,
+      "IntervallMittelSchritte": 0.02,
+      "MotorStopDelay":2.0
+    },
+    "Geschwindigkeit": {
+      "FOB": 0.5,
+      "FUB": 0.5,
+      "FPR": 0.5,
+    },
+    "Benutzer": [
         "+491234567890",
         "+491234567891"
-    ]
-}
+    ],
+  }

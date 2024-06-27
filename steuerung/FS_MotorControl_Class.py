@@ -6,7 +6,7 @@ import digitalio
 from adafruit_motorkit import MotorKit
 from adafruit_mcp230xx.mcp23017 import MCP23017
 
-class MotorControl:
+class FS_MotorControl:
 	def __init__(self, config):
 		# Initialisiert den MotorKit
 		self.kit = MotorKit(i2c=busio.I2C(board.SCL, board.SDA))
@@ -20,7 +20,8 @@ class MotorControl:
 		# Konfiguriert die Mikroschalter basierend auf der übergebenen Konfiguration
 		self.microswitches = {}
 		for unit, pins in motor_config.items():
-			mcp_address = pins["mcp Adresse"]
+			mcp_address_str = pins["mcp Adresse"]
+			mcp_address = int(mcp_address_str, 16)  # Konvertiert die mcp-Adresse von Hex-String zu Integer
 			nc_pin = pins["NC Pin"]
 			no_pin = pins["NO Pin"]
 			mcp = MCP23017(busio.I2C(board.SCL, board.SDA), address=mcp_address)
@@ -34,23 +35,27 @@ class MotorControl:
 	def move_motor(self, motor_name, direction):
 		# Steuert den Motor in die angegebene Richtung
 		
-		print(f"Drehe Motor {motor_name} in Richtung {direction}")
+		motor_number = self._motor_name_to_number(motor_name)
 
-		motor = getattr(self.kit, f"motor{motor_name}")
-		# motor.throttle = direction
+		print(f"Drehe Motor {motor_name} - {motor_number} in Richtung {direction}")
+
+		motor = getattr(self.kit, f"motor{motor_number}")
+		motor.throttle = direction * self.speeds[motor_name]
 
 	def stop_motor(self, motor_name):
 		# Stoppt den Motor
 		
 		print(f"Stoppe Motor {motor_name}")
 		
-		motor = getattr(self.kit, f"motor{motor_name}")
+		motor_number = self._motor_name_to_number(motor_name)
+		motor = getattr(self.kit, f"motor{motor_number}")
 		motor.throttle = 0
 
 	def is_in_mid_position(self, motor_name):
 		# Überprüft, ob der Motor in der Mittelposition ist (NO-Schalter ist offen)
 		
-		print(f"Ist Motor {motor_name} in Mittelstellung? {not self.microswitches[motor_name]["no"].value}")
+		mittelstellung = not self.microswitches[motor_name]["no"].value
+		print(f"Ist Motor {motor_name} in Mittelstellung? {mittelstellung}")
 		
 		if motor_name in self.microswitches:
 			return not self.microswitches[motor_name]["no"].value
@@ -69,9 +74,19 @@ class MotorControl:
 		
 		print(f"schrittweise Anpassung Motor {motor_name} in Richtung {direction} aus")
 
-		motor = getattr(self.kit, f"motor{motor_name}")
+		motor_number = self._motor_name_to_number(motor_name)
+		motor = getattr(self.kit, f"motor{motor_number}")
 		for _ in range(steps):
-			#motor.throttle = direction
+			motor.throttle = direction * self.speeds[motor_name]
 			time.sleep(0.02)
 			#motor.throttle = 0
 			time.sleep(0.02)
+
+	def _motor_name_to_number(self, motor_name):
+			# Wandelt den Motornamen in die entsprechende Motornummer um
+			mapping = {
+				'FOB': 1,
+				'FUB': 2,
+				'FPA': 3
+			}
+			return mapping.get(motor_name, 1)  # Standardmäßig zu 1, wenn der Name nicht gefunden wird
