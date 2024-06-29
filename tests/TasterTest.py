@@ -86,6 +86,15 @@ taster_dict = {
 	Tast_OB_hand: {"name": "Tast_OB_hand", "led": led_OB_hand}
 }
 
+def display_button_status(taster_dict):
+    status = {}
+    for button, config in taster_dict.items():
+        button_status = "gedrückt" if not button.value else "nicht gedrückt"
+        status[config['name']] = button_status
+        print(f"Taster {config['name']}: {button_status}")
+
+    return status
+
 def blink_active_led(active_led):
 	# Blinken der "active" LED für 1 Sekunde
 	start_time = time.time()
@@ -109,6 +118,7 @@ def check_buttons():
 
 try:
 	print("Zyklische Abfrage der Taster gestartet. Drücke Strg+C zum Beenden.")
+	display_button_status(taster_dict)
 	while True:
 		start_time = time.time()
 		check_buttons()
