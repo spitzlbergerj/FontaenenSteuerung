@@ -1,0 +1,106 @@
+{
+    "MQTT Cloud": {
+      "web_address": "https://fbaaeb99.ala.us-east-1.emqxsl.com/",
+      "Port": 8883,
+      "user": "FontaenenSteuerungMQTT",
+      "password": "2hHihvqNK9GQ!YakaDqw"
+    },
+    "MQTT lokal": {
+      "Adresse": "localhost",
+      "Port": 1883
+    },
+    "LEDs": {
+      "FOB": {
+        "mcp": "0x20",
+        "hand": 11,
+        "aus": 10,
+        "auto": 9,
+        "aktiv": 8
+      },
+      "FUB": {
+        "mcp": "0x20",
+        "hand": 7,
+        "aus": 6,
+        "auto": 5,
+        "aktiv": 4
+      },
+      "FPA": {
+        "mcp": "0x20",
+        "hand": 3,
+        "aus": 2,
+        "auto": 1,
+        "aktiv": 0
+      },
+      "Status": {
+        "mcp": "0x20",
+        "fehler": 15
+      }
+    },
+    "Taster": {
+      "FOB": {
+        "mcp": "0x21",
+        "hand": 5,
+        "aus": 4,
+        "auto": 3
+      },
+      "FUB": {
+        "mcp": "0x21",
+        "hand": 2,
+        "aus": 1,
+        "auto": 0
+      },
+      "FPA": {
+        "mcp": "0x20",
+        "hand": 14,
+        "aus": 13,
+        "auto": 12
+      }
+    },
+    "Microswitch": {
+      "FOB": {
+        "mcp Adresse": "0x21",
+        "NC Pin": 9,
+        "NO Pin": 8
+      },
+      "FUB": {
+        "mcp Adresse": "0x21",
+        "NC Pin": 12,
+        "NO Pin": 11
+      },
+      "FPA": {
+        "mcp Adresse": "0x21",
+        "NC Pin": 15,
+        "NO Pin": 14
+      }
+    },
+    "KorrekturMitte": {
+      "FOB": {
+        "hand-aus": 10,
+        "auto-aus": 10
+      },
+      "FUB": {
+        "hand-aus": 8,
+        "auto-aus": 7
+      },
+      "FPA": {
+        "hand-aus": 11,
+        "auto-aus": 8
+      }
+    },
+    "Zeiten": {
+      "IntervallStatus": 60,
+      "IntervallTaster": 1,
+      "IntervallMicroswitch": 0.01,
+      "IntervallMittelSchritte": 0.02,
+      "MotorStopDelay":2.0
+    },
+    "Geschwindigkeit": {
+      "FOB": 0.5,
+      "FUB": 0.5,
+      "FPA": 0.5
+    },
+    "authorized_users": [
+      "+4915114007455",
+      "+4916097211274"
+    ]
+  }

@@ -125,7 +125,7 @@ def LEDTest(steuerung):
 	steuerung["ERR"]["LEDs"][0].value = False
 
 	# Fehler-LED blinken lassen
-	blink_led(steuerung["ERR"]["LEDs"][0], 10, 0.1)
+	blink_led(steuerung["ERR"]["LEDs"][0], 5, 0.05)
 
 	return True
 
@@ -134,8 +134,8 @@ def LEDTest(steuerung):
 # -----------------------------------------------
 def display_button_status(steuerung):
 	status = {}
-	for key in ["FPA", "FUB", "FOB"]:
-		print({key: steuerung[key]['Taster']})
+	for key in ["FOB", "FUB", "FPA"]:
+		# print({key: steuerung[key]['Taster']})
 		status[key] = {}
 		for i, button in enumerate(steuerung[key]["Taster"]):
 			button_name = ['Auto', 'Aus', 'Hand'][i]
@@ -154,7 +154,7 @@ def check_buttons(steuerung, duration):
 					# Zugehörige LED einschalten
 					steuerung[key]["LEDs"][i + 1].value = True
 					# Active LED blinken lassen
-					blink_led(steuerung[key]["LEDs"][0])
+					blink_led(steuerung[key]["LEDs"][0], 5, 0.05)
 					# Zugehörige LED ausschalten nach dem Blinken
 					steuerung[key]["LEDs"][i + 1].value = False
 		time.sleep(0.1)  
@@ -217,8 +217,8 @@ def main():
 	# Tastertest starten, wenn der Parameter -t gesetzt ist
 	if args.taster_test:
 		display_button_status(steuerung)
-		print("Taster Test ab jetzt für 20 Sekunden")
-		check_buttons(steuerung, 20)
+		print(f"Taster Test ab jetzt für {args.taster_test} Sekunden")
+		check_buttons(steuerung, args.taster_test)
 		print("Taster Test abgeschlossen")
 
 
