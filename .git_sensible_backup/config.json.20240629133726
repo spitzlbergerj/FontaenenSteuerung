@@ -1,9 +1,9 @@
 {
     "MQTT Cloud": {
-      "URL": "https://fbaaeb99.ala.us-east-1.emqxsl.com",
+      "web_address": "https://fbaaeb99.ala.us-east-1.emqxsl.com/",
       "Port": 8883,
-      "User": "FontaenenSteuerungMQTT",
-      "Passwort": "2hHihvqNK9GQ!YakaDqw"
+      "user": "FontaenenSteuerungMQTT",
+      "password": "2hHihvqNK9GQ!YakaDqw"
     },
     "MQTT lokal": {
       "Adresse": "localhost",
@@ -99,8 +99,8 @@
       "FUB": 0.5,
       "FPA": 0.5
     },
-    "Benutzer": [
-        "+491234567890",
-        "+491234567891"
+    "authorized_users": [
+      "+4915114007455",
+      "+4916097211274"
     ]
   }

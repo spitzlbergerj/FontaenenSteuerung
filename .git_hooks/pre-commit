@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Sensible Daten sollen aus Dateien entfernt werden
 
@@ -28,7 +28,7 @@ update_json() {
         sed -i 's/"web_address": "[^"]*"/"web_address": "DieMQTTBrokerWebAdresse"/' "$1"
         sed -i 's/"user": "[^"]*"/"user": "DerBenutzer"/' "$1"
         sed -i 's/"password": "[^"]*"/"password": "DasGeheimesPasswort"/' "$1"
-        sed -i 's/"authorized_users": \[[^]]*\]/"authorized_users": ["DieTelefonnummerImFormat+49xxx"]/' "$1"
+        sed -i '/"authorized_users": \[/,/\]/c\    "authorized_users": ["DieTelefonnummerImFormat+49xxx"]' "$1"
     else
         echo "Datei $1 nicht gefunden."
         exit 1
