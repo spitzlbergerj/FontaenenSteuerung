@@ -19,12 +19,12 @@ class FS_MotorControl:
 		# Übernimmt die Mikroschalter-Konfiguration aus dem steuerung-Wörterbuch
 		self.microswitches = {}
 		for unit in steuerung:
-			if 'Schalter' in steuerung[unit] and len(steuerung[unit]['Schalter']) == 2:
+			if unit != 'ERR' and 'Schalter' in steuerung[unit] and len(steuerung[unit]['Schalter']) == 2:
 				self.microswitches[unit] = {
 					'nc': steuerung[unit]['Schalter'][1], 
 					'no': steuerung[unit]['Schalter'][0]
 				}
-			else:
+			elif unit != 'ERR':
 				print(f"Warnung: Einheit {unit} hat nicht die erwartete Anzahl von Schaltern.")
 	
 	
@@ -37,6 +37,16 @@ class FS_MotorControl:
 			return "Hand-Aus-Auto"
 		else:
 			raise ValueError("Ungültige Richtung: direction muss 1 oder -1 sein.")
+
+	def string_to_direction(aelf, direction_string):
+		# Wandelt einen String in die entsprechende Richtung um.
+		
+		if direction_string == "Auto-Aus-Hand":
+			return 1
+		elif direction_string == "Hand-Aus-Auto":
+			return -1
+		else:
+			raise ValueError("Ungültiger Richtung-String: direction_string muss 'Auto-Aus-Hand' oder 'Hand-Aus-Auto' sein.")
 
 	def _motor_name_to_number(self, motor_name):
 		# Wandelt den Motornamen in die entsprechende Motornummer um
@@ -79,9 +89,15 @@ class FS_MotorControl:
 			# beim Anfahren kurz warten, damit der Null Schalter wieder in open gehen kann
 			time.sleep(0.5)
 
-			while not self.is_in_mid_position(motor_name):
-				time.sleep(0.01)  # Kurze Pause zur Überprüfung
-			self.stop_motor(motor_name)
+		start_time = time.time()  # Startzeit erfassen
+		while not self.is_in_mid_position(motor_name):
+			if time.time() - start_time > 5:  # Überprüfen, ob 5 Sekunden vergangen sind
+				print(f"Zeitbegrenzung erreicht. Motor {motor_name} wird gestoppt.")
+				break
+			time.sleep(0.01)  # Kurze Pause zur Überprüfung
+
+		self.stop_motor(motor_name)
+		if self.is_in_mid_position(motor_name):  # Nur Feineinstellung durchführen, wenn Mittelstellung erreicht ist
 			self.perform_fine_tuning(motor_name, self.get_correction_steps(motor_name, direction), direction)
 
 	def stop_motor(self, motor_name):

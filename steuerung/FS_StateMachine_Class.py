@@ -122,6 +122,7 @@ class FS_StateMachine:
 	# -----------------------------------------------
 	def check_buttons(self):
 		self.button_control.print_all_buttons()
+		print(f"Zustandsmaschine {self.name} im Status {self.get_current_state()}")
 
 		# Durchlaufen Sie alle Taster der Einheit und prüfen Sie, ob sie gedrückt wurden
 		for i, button in enumerate(self.steuerung[self.name]['Taster']):
@@ -133,38 +134,40 @@ class FS_StateMachine:
 				elif i == 2:  # Hand-Taster
 					self.set_hand()
 					
-					
+	def get_current_state(self):
+		return self.state
+
 	# -----------------------------------------------
 	# on_enter_TO_AUTO: Aktionen beim Eintritt in den Zustand TO_AUTO
 	# -----------------------------------------------
 	def on_enter_TO_AUTO(self):
-		self.trigger_motor_control(1)
+		self.trigger_motor_control(self.motor_control.string_to_direction("Hand-Aus-Auto"))
 		self.trigger_led_control()
-		self.start_timer()
+		self.complete_transition()
 
 	# -----------------------------------------------
 	# on_enter_TO_HAND: Aktionen beim Eintritt in den Zustand TO_HAND
 	# -----------------------------------------------
 	def on_enter_TO_HAND(self):
-		self.trigger_motor_control(1)
+		self.trigger_motor_control(self.motor_control.string_to_direction("Auto-Aus-Hand"))
 		self.trigger_led_control()
-		self.start_timer()
+		self.complete_transition()
 
 	# -----------------------------------------------
 	# on_enter_TO_OFF_FROM_AUTO: Aktionen beim Eintritt in den Zustand TO_OFF_FROM_AUTO
 	# -----------------------------------------------
 	def on_enter_TO_OFF_FROM_AUTO(self):
-		self.trigger_motor_control(-1)  # Drehe von Auto nach Aus
+		self.trigger_motor_control(self.motor_control.string_to_direction("Auto-Aus-Hand"))  # Drehe von Auto nach Aus
 		self.trigger_led_control()
-		self.start_timer()
+		self.complete_transition()
 
 	# -----------------------------------------------
 	# on_enter_TO_OFF_FROM_HAND: Aktionen beim Eintritt in den Zustand TO_OFF_FROM_HAND
 	# -----------------------------------------------
 	def on_enter_TO_OFF_FROM_HAND(self):
-		self.trigger_motor_control(-1)  # Drehe von Hand nach Aus
+		self.trigger_motor_control(self.motor_control.string_to_direction("Hand-Aus-Auto"))  # Drehe von Hand nach Aus
 		self.trigger_led_control()
-		self.start_timer()
+		self.complete_transition()
 
 	# -----------------------------------------------
 	# start_blinking: starts the blinking of the activity LED
@@ -179,21 +182,12 @@ class FS_StateMachine:
 		self.led_control.stop_blink_activity_led(self.name)
 
 	# -----------------------------------------------
-	# start_timer: Startet den Timer für die Übergangsperiode
-	# -----------------------------------------------
-	def start_timer(self):
-		if self.timer:
-			self.timer.cancel()
-		self.timer = threading.Timer(self.wait_time, self.complete_transition)
-		self.timer.start()
-
-	# -----------------------------------------------
 	# start_waiting: Startet den Timer für die Warteperiode
 	# -----------------------------------------------
 	def start_waiting(self):
 		if self.timer:
 			self.timer.cancel()
-		self.timer = threading.Timer(60, self.wait_complete)
+		self.timer = threading.Timer(self.wait_time, self.wait_complete)
 		self.timer.start()
 
 	# -----------------------------------------------
