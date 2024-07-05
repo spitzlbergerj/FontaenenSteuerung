@@ -24,6 +24,62 @@ from FS_ButtonControl_Class import FS_ButtonControl
 # FS_StateMachine Klassen Definition
 # -----------------------------------------------
 class FS_StateMachine:
+
+	# -----------------------------------------------
+	# Callback execution order
+	# -----------------------------------------------
+	#
+	# Callback						Current State		Comments
+	# ---------------------------	-----------------	--------------------------------------
+	# 'machine.prepare_event'		source				executed once before individual transitions are processed
+	# 'transition.prepare'			source				executed as soon as the transition starts
+	# 'transition.conditions'		source				conditions may fail and halt the transition
+	# 'transition.unless'			source				conditions may fail and halt the transition
+	# 'machine.before_state_change'	source				default callbacks declared on model
+	# 'transition.before'			source	
+	# 'state.on_exit'				source				callbacks declared on the source state
+	# <STATE CHANGE>		
+	# 'state.on_enter'				destination			callbacks declared on the destination state
+	# 'transition.after'			destination	
+	# 'machine.on_final'			destination			callbacks on children will be called first
+	# 'machine.after_state_change'	destination			default callbacks declared on model; will also be called after internal transitions
+	#
+	# 'machine.on_exception'		source/destination	callbacks will be executed when an exception has been raised
+	# 'machine.finalize_event'		source/destination	callbacks will be executed even if no transition took place or an exception has been raised
+
+	states = [
+		{'name': 'INIT',		'on_enter': ['init_leds_on_enter'],				'on_exit': ['init_leds_on_exit']},
+		{'name': 'OFF',			'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+		{'name': 'AUTO',		'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+		{'name': 'HAND',		'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+
+		{'name': 'WAIT2AUTO',	'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+		{'name': 'WAIT2HAND',	'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+		{'name': 'WAIT2OFF',	'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+
+		{'name': 'BLOCKED',		'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+
+		{'name': 'ERROR',		'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+	]
+
+	transitions = [
+		{'trigger': 'initialize',	'source': 'INIT', 		'dest': 'OFF'},
+
+		{'trigger': 'to_auto',		'source': 'OFF',		'dest': 'WAIT2AUTO',	'conditions': 'can_transition', 'before': 'before_move',	'after': 'move_motor'},
+		{'trigger': 'to_hand',		'source': 'OFF',		'dest': 'WAIT2HAND',	'conditions': 'can_transition', 'before': 'before_move', 	'after': 'move_motor'},
+		{'trigger': 'to_off',		'source': 'HAND',		'dest': 'WAIT2OFF',		'conditions': 'can_transition', 'before': 'before_move', 	'after': 'move_motor'},
+		{'trigger': 'to_off',		'source': 'AUTO',		'dest': 'WAIT2OFF',		'conditions': 'can_transition', 'before': 'before_move', 	'after': 'move_motor'},
+
+		{'trigger': 'wait',			'source': 'WAIT2AUTO',	'dest': 'AUTO',			'conditions': 'can_transition', 							'after': 'waiting'},
+		{'trigger': 'wait',			'source': 'WAIT2HAND',	'dest': 'HAND',			'conditions': 'can_transition',								'after': 'waiting'},
+		{'trigger': 'wait',			'source': 'WAIT2OFF',	'dest': 'OFF',			'conditions': 'can_transition',								'after': 'waiting'},
+
+		{'trigger': 'block',		'source': '*',			'dest': 'BLOCKED', 		'before': 'store_state'},
+		{'trigger': 'unblock',		'source': 'BLOCKED',	'dest': None, 			'before': 'restore_state'},
+		{'trigger': 'error',		'source': '*',			'dest': 'ERROR'},
+	]
+
+
 	# -----------------------------------------------
 	# Initialisierung
 	# -----------------------------------------------
@@ -48,38 +104,11 @@ class FS_StateMachine:
 		self.motor_control = FS_MotorControl(config, steuerung)
 		self.button_control = FS_ButtonControl({name: steuerung[name]['Taster']})
 
-		# -----------------------------------------------
-		# Definition der Zustände
-		# -----------------------------------------------
-		states = ['INIT', 'OFF', 'HAND', 'AUTO', 'BLOCKED', 'ERROR', 'TO_OFF_FROM_AUTO', 'TO_OFF_FROM_HAND', 'TO_HAND', 'TO_AUTO', 'WAIT']
-
-		# -----------------------------------------------
-		# Definition der Übergänge
-		# -----------------------------------------------
-		#
-		# Ein Trigger hat folgende Parameter
-		# trigger: Der Auslöser, der den Übergang initiiert. Dies ist typischerweise eine Methode, die aufgerufen wird.
-		# source: Der Ausgangszustand, aus dem der Übergang startet.
-		# dest: Der Zielzustand, in den die Maschine wechselt.
-		# conditions: Eine optionale Bedingung, die erfüllt sein muss, damit der Übergang stattfindet.
-		#
-		transitions = [
-			{'trigger': 'set_auto', 'source': 'OFF', 'dest': 'TO_AUTO', 'conditions': 'can_transition', 'after': 'start_blinking'},
-			{'trigger': 'set_hand', 'source': 'OFF', 'dest': 'TO_HAND', 'conditions': 'can_transition', 'after': 'start_blinking'},
-			{'trigger': 'set_off', 'source': 'HAND', 'dest': 'TO_OFF_FROM_HAND', 'conditions': 'can_transition', 'after': 'start_blinking'},
-			{'trigger': 'set_off', 'source': 'AUTO', 'dest': 'TO_OFF_FROM_AUTO', 'conditions': 'can_transition', 'after': 'start_blinking'},
-			{'trigger': 'block', 'source': '*', 'dest': 'BLOCKED'},
-			{'trigger': 'unblock', 'source': 'BLOCKED', 'dest': 'OFF'},
-			{'trigger': 'error', 'source': '*', 'dest': 'ERROR'},
-			{'trigger': 'complete_transition', 'source': ['TO_AUTO', 'TO_HAND', 'TO_OFF_FROM_AUTO', 'TO_OFF_FROM_HAND'], 'dest': 'WAIT', 'after': 'start_waiting'},
-			{'trigger': 'wait_complete', 'source': 'WAIT', 'dest': 'OFF', 'after': 'stop_blinking'},
-			{'trigger': 'initialize', 'source': 'INIT', 'dest': 'OFF'}
-		]
 
 		# -----------------------------------------------
 		# Initialisierung der Zustandsmaschine
 		# -----------------------------------------------
-		self.machine = Machine(model=self, states=states, transitions=transitions, initial='INIT', queued=True)
+		self.machine = Machine(model=self, states=FS_StateMachine.states, transitions=FS_StateMachine.transitions, initial='INIT', queued=True)
 
 	# -----------------------------------------------
 	# can_transition: Überprüft, ob der Motor in den nächsten Zustand wechseln kann
