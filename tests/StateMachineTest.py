@@ -38,9 +38,9 @@ class DeviceController:
 		{'name': 'AUTO',		'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
 		{'name': 'HAND',		'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
 
-		{'name': 'WAIT2AUTO',	'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
-		{'name': 'WAIT2HAND',	'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
-		{'name': 'WAIT2OFF',	'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+		{'name': 'AUTO-WAIT',	'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+		{'name': 'HAND-WAIT',	'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
+		{'name': 'OFF-WAIT',	'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
 
 		{'name': 'BLOCKED',		'on_enter': ['manage_leds_on_enter'], 			'on_exit': ['manage_leds_on_exit']},
 
@@ -50,14 +50,14 @@ class DeviceController:
 	transitions = [
 		{'trigger': 'initialize',	'source': 'INIT', 		'dest': 'OFF'},
 
-		{'trigger': 'to_auto',		'source': 'OFF',		'dest': 'WAIT2AUTO',	'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
-		{'trigger': 'to_hand',		'source': 'OFF',		'dest': 'WAIT2HAND',	'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
-		{'trigger': 'to_off',		'source': 'HAND',		'dest': 'WAIT2OFF',		'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
-		{'trigger': 'to_off',		'source': 'AUTO',		'dest': 'WAIT2OFF',		'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
+		{'trigger': 'to_auto',		'source': 'OFF',		'dest': 'AUTO-WAIT',	'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
+		{'trigger': 'to_hand',		'source': 'OFF',		'dest': 'HAND-WAIT',	'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
+		{'trigger': 'to_off',		'source': 'HAND',		'dest': 'OFF-WAIT',		'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
+		{'trigger': 'to_off',		'source': 'AUTO',		'dest': 'OFF-WAIT',		'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
 
-		{'trigger': 'wait',			'source': 'WAIT2AUTO',	'dest': 'AUTO',			'conditions': 'can_transition', 'after': 'waiting'},
-		{'trigger': 'wait',			'source': 'WAIT2HAND',	'dest': 'HAND',			'conditions': 'can_transition', 'after': 'waiting'},
-		{'trigger': 'wait',			'source': 'WAIT2OFF',	'dest': 'OFF',			'conditions': 'can_transition', 'after': 'waiting'},
+		{'trigger': 'wait',			'source': 'AUTO-WAIT',	'dest': 'AUTO',			'conditions': 'can_transition', 'after': 'waiting'},
+		{'trigger': 'wait',			'source': 'HAND-WAIT',	'dest': 'HAND',			'conditions': 'can_transition', 'after': 'waiting'},
+		{'trigger': 'wait',			'source': 'OFF-WAIT',	'dest': 'OFF',			'conditions': 'can_transition', 'after': 'waiting'},
 
 		{'trigger': 'block',		'source': '*',			'dest': 'BLOCKED', 		'before': 'store_state'},
 		{'trigger': 'unblock',		'source': 'BLOCKED',	'dest': None, 			'before': 'restore_state'},
@@ -71,17 +71,17 @@ class DeviceController:
 		self.stored_state = None
 
 	def get_direction(self, source, destination):
-		if source == 'HAND' and destination == 'WAIT2AUTO':
+		if source == 'HAND' and destination == 'AUTO-WAIT':
 			return "Hand-Aus-Auto"
-		elif source == 'AUTO' and destination == 'WAIT2HAND':
+		elif source == 'AUTO' and destination == 'HAND-WAIT':
 			return "Auto-Aus-Hand"
-		elif source == 'OFF' and destination == 'WAIT2AUTO':
+		elif source == 'OFF' and destination == 'AUTO-WAIT':
 			return "Hand-Aus-Auto"
-		elif source == 'AUTO' and destination == 'WAIT2OFF':
+		elif source == 'AUTO' and destination == 'OFF-WAIT':
 			return "Auto-Aus-Hand"
-		elif source == 'OFF' and destination == 'WAIT2HAND':
+		elif source == 'OFF' and destination == 'HAND-WAIT':
 			return "Auto-Aus-Hand"
-		elif source == 'HAND' and destination == 'WAIT2OFF':
+		elif source == 'HAND' and destination == 'OFF-WAIT':
 			return "Hand-Aus-Auto"
 		else:
 			return None
@@ -124,11 +124,11 @@ class DeviceController:
 			print("LED Auto an")
 		elif self.state == 'HAND':
 			print("LED Hand an")
-		elif self.state == 'WAIT2AUTO':
+		elif self.state == 'AUTO-WAIT':
 			print("nichts zu tun")
-		elif self.state == 'WAIT2OFF':
+		elif self.state == 'OFF-WAIT':
 			print("nichts zu tun")
-		elif self.state == 'WAIT2HAND':
+		elif self.state == 'HAND-WAIT':
 			print("nichts zu tun")
 		elif self.state == 'WAIT':
 			print("nichts zu tun")
@@ -150,11 +150,11 @@ class DeviceController:
 			print("LED Auto aus")
 		elif self.state == 'HAND':
 			print("LED Hand aus")
-		elif self.state == 'WAIT2AUTO':
+		elif self.state == 'AUTO-WAIT':
 			print("nichts zu tun")
-		elif self.state == 'WAIT2OFF':
+		elif self.state == 'OFF-WAIT':
 			print("nichts zu tun")
-		elif self.state == 'WAIT2HAND':
+		elif self.state == 'HAND-WAIT':
 			print("nichts zu tun")
 		elif self.state == 'WAIT':
 			print("nix zu tun")

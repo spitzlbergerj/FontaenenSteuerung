@@ -1,14 +1,10 @@
 {
     "MQTT Cloud": {
       "web_address": "DieMQTTBrokerWebAdresse",
-      "Port": 8883,
+      "port": 8883,
       "user": "DerBenutzer",
       "password": "DasGeheimesPasswort",
       "topic":"fountain"
-    },
-    "MQTT lokal": {
-      "Adresse": "localhost",
-      "Port": 1883
     },
     "LEDs": {
       "FOB": {
@@ -90,10 +86,10 @@
     },
     "Zeiten": {
       "IntervallStatus": 5,
-      "IntervallTaster": 1,
+      "IntervallTaster": 0.2,
       "IntervallMicroswitch": 0.01,
       "IntervallMittelSchritte": 0.02,
-      "MotorStopDelay":2.0
+      "MotorStopDelay":1.5
     },
     "Geschwindigkeit": {
       "FOB": 0.5,

@@ -1,4 +1,5 @@
 import time
+import logging
 import board
 import busio
 import digitalio
@@ -8,6 +9,9 @@ from adafruit_mcp230xx.mcp23017 import MCP23017
 
 class FS_MotorControl:
 	def __init__(self, config, steuerung):
+		# Logging aus dem Hauptprogramm holen
+		self.logger = logging.getLogger(self.__class__.__name__)
+
 		# Initialisiert den MotorKit
 		self.kit = MotorKit(i2c=busio.I2C(board.SCL, board.SDA))
 
@@ -15,6 +19,7 @@ class FS_MotorControl:
 		self.correction_config = config['KorrekturMitte']
 		self.speeds = config['Geschwindigkeit']
 		self.fine_tuning_interval = config['Zeiten']['IntervallMittelSchritte']
+		self.motor_stop_delay = config['Zeiten']['MotorStopDelay']
 	
 		# Übernimmt die Mikroschalter-Konfiguration aus dem steuerung-Wörterbuch
 		self.microswitches = {}
@@ -25,7 +30,7 @@ class FS_MotorControl:
 					'no': steuerung[unit]['Schalter'][0]
 				}
 			elif unit != 'ERR':
-				print(f"Warnung: Einheit {unit} hat nicht die erwartete Anzahl von Schaltern.")
+				self.logger.warning(f"Warnung: Einheit {unit} hat nicht die erwartete Anzahl von Schaltern.")
 	
 	
 	def direction_to_string(self, direction):
@@ -59,40 +64,40 @@ class FS_MotorControl:
 	
 	def print_switches_for_unit(self, unit):
 		if unit not in self.microswitches:
-			print(f"Einheit {unit} hat keine definierten Microswitches.")
+			self.logger.debug(f"Einheit {unit} hat keine definierten Microswitches.")
 			return
 		
 		status = {}
-		print(f"Schalterstatus für Einheit: {unit}")
-		print("-----------------")
+		self.logger.debug(f"Schalterstatus für Einheit: {unit}")
+		self.logger.debug("-----------------")
 		for switch_name, switch in self.microswitches[unit].items():
 			switch_state = "offen" if switch.value else "geschlossen"
 			status[switch_name] = switch_state
-			print(f"Schalter {unit} {switch_name}: {switch_state}")
-		print("-----------------")
+			self.logger.debug(f"Schalter {unit} {switch_name}: {switch_state}")
+		self.logger.debug("-----------------")
 		return status
 	
 	def move_motor(self, motor_name, direction, target_mid_position=False):
 		self.print_switches_for_unit(motor_name)
 
 		if target_mid_position and self.is_in_mid_position(motor_name):
-			print(f"Motor {motor_name} befindet sich bereits in der Mittelstellung. Bewegung nicht erforderlich.")
+			self.logger.debug(f"Motor {motor_name} befindet sich bereits in der Mittelstellung. Bewegung nicht erforderlich.")
 			return
 
 		motor_number = self._motor_name_to_number(motor_name)
-		print(f"Drehe Motor {motor_name} - {motor_number} in Richtung {self.direction_to_string(direction)}")
+		self.logger.debug(f"Drehe Motor {motor_name} - {motor_number} in Richtung {self.direction_to_string(direction)}")
 
 		motor = getattr(self.kit, f"motor{motor_number}")
 		motor.throttle = direction * self.speeds[motor_name]
 
-		if target_mid_position:
-			# beim Anfahren kurz warten, damit der Null Schalter wieder in open gehen kann
-			time.sleep(0.5)
-
 		start_time = time.time()  # Startzeit erfassen
+
+		# beim Anfahren kurz warten, damit der Null Schalter wieder in open gehen könnte
+		time.sleep(0.5)
+
 		while not self.is_in_mid_position(motor_name):
-			if time.time() - start_time > 5:  # Überprüfen, ob 5 Sekunden vergangen sind
-				print(f"Zeitbegrenzung erreicht. Motor {motor_name} wird gestoppt.")
+			if time.time() - start_time > self.motor_stop_delay:  # Überprüfen, ob die Delay Sekunden vergangen sind
+				self.logger.debug(f"Zeitbegrenzung erreicht. Motor {motor_name} wird gestoppt.")
 				break
 			time.sleep(0.01)  # Kurze Pause zur Überprüfung
 
@@ -103,7 +108,7 @@ class FS_MotorControl:
 	def stop_motor(self, motor_name):
 		# Stoppt den Motor
 		
-		print(f"Stoppe Motor {motor_name}")
+		self.logger.debug(f"Stoppe Motor {motor_name}")
 		
 		motor_number = self._motor_name_to_number(motor_name)
 		motor = getattr(self.kit, f"motor{motor_number}")
@@ -123,7 +128,7 @@ class FS_MotorControl:
 		return 0
 
 	def perform_fine_tuning(self, motor_name, steps, direction):
-		print(f"schrittweise Anpassung Motor {motor_name} in Richtung {direction} aus")
+		self.logger.debug(f"schrittweise Anpassung Motor {motor_name} in Richtung {direction} aus")
 
 		motor_number = self._motor_name_to_number(motor_name)
 		motor = getattr(self.kit, f"motor{motor_number}")

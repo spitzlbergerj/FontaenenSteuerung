@@ -18,42 +18,28 @@ import logging
 # -----------------------------------------------
 # globale Variablen
 # -----------------------------------------------
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 
 class FS_Communication:
 	# -----------------------------------------------
 	# initialization
 	# -----------------------------------------------
-	def __init__(self, local_config, cloud_config, client_id, command_callback):
+	def __init__(self, cloud_config, client_id, command_callback):
 
-		MQTTuser = self.typwandlung(cloud_config['User'], "str")
-		MQTTpassword = self.typwandlung(cloud_config['Passwort'], "str")
-		MQTTbroker = self.typwandlung(cloud_config['URL'], "str")
-		MQTTport = self.typwandlung(cloud_config['Port'], "int")
+		# Logging aus dem Hauptprogramm holen
+		self.logger = logging.getLogger(self.__class__.__name__)
 
-		self.cloud_client = None
+		self.on_message = command_callback
 
 		try:
-			self.cloud_client = mqtt.Client() 
-			self.cloud_client.tls_set()  # Aktiviere TLS ohne spezifische Zertifikate
-			self.cloud_client.username_pw_set(MQTTuser, MQTTpassword)
-			self.cloud_client.connect(MQTTbroker, MQTTport, 60)
+			self.logger.debug("Attempting to connect to the broker...")
+			self.client = self.connect_mqtt(cloud_config)
+			self.subscribe(self.client, self.typwandlung(cloud_config['topic'], "str"))
+			self.client.loop_start()
 
-			self.cloud_broker_address = MQTT_broker
-			self.cloud_broker_port = MQTTport
+			self.logger.info("MQTT Cloud etabliert")
 
-			#self.cloud_client.on_connect = self.on_connect
-			#self.cloud_client.on_message = self.on_message
-
-			# Authentifizierung für Cloud Broker falls angegeben
-
-			# Verbindung zum Cloud Broker
-			self.cloud_client.connect(self.cloud_broker_address, self.cloud_broker_port, 60)
-			logging.info("MQTT Cloud etabliert")
-
-		except Error as e:
-			print(f"ERROR - MQTT - Fehler aufgetreten: '{e}'")
+		except Exception as e:
+			self.logger.error(f"MQTT - Fehler aufgetreten: '{e}'")
 		
 
 	# ---------------------------------------------------------------------------------------------
@@ -79,43 +65,40 @@ class FS_Communication:
 		else:
 			raise ValueError(f"Unbekannter Zieltyp: {ziel_typ}")
 
-	# -----------------------------------------------
-	# on connect callback
-	# -----------------------------------------------
-	def on_connect(self, client, userdata, flags, rc):
-		print(f"Connected to MQTT Broker: {client._client_id}")
-		client.subscribe("commands/#")
-	
-	# -----------------------------------------------
-	# on message callback
-	# -----------------------------------------------
-	def on_message(self, client, userdata, msg):
-		topic = msg.topic
-		message = msg.payload.decode()
-		print(f"Received message: {message} on topic: {topic}")
-		self.command_callback(topic, message)
-	
+	# ---------------------------------------------------------------------------------------------
+	# MQTT Broker Connect
+	# ---------------------------------------------------------------------------------------------
+	def connect_mqtt(self, cloud_config):
+
+		def on_connect(client, userdata, flags, rc):
+			if rc == 0:
+				self.logger.debug("Connected to MQTT Broker!")
+			else:
+				self.logger.error("Failed to connect, return code %d\n", rc)
+
+		MQTTuser = cloud_config['user']
+		MQTTpassword = cloud_config['password']
+		MQTTbroker = cloud_config['web_address']
+		MQTTport = cloud_config['port']
+
+		client = mqtt.Client()
+		client.tls_set()  # Aktiviere TLS ohne spezifische Zertifikate
+		client.username_pw_set(MQTTuser, MQTTpassword)
+		client.on_connect = on_connect
+		client.connect(MQTTbroker, MQTTport, 60)
+		return client
+
+	# ---------------------------------------------------------------------------------------------
+	# Subscribe zum Topic
+	# ---------------------------------------------------------------------------------------------
+	def subscribe(self, client: mqtt, topic):
+		client.subscribe(topic, qos=0)
+		client.on_message = self.on_message
+
+
 	# -----------------------------------------------
 	# publish message
 	# -----------------------------------------------
-	def publish(self, topic, message, target='local'):
-		if target == 'local':
-			self.local_client.publish(topic, message)
-		elif target == 'cloud':
-			self.cloud_client.publish(topic, message)
+	def publish(self, topic, message):
+		self.client.publish(topic, message)
 	
-	# -----------------------------------------------
-	# start clients
-	# -----------------------------------------------
-	def start(self):
-		self.local_client.loop_start()
-		self.cloud_client.loop_start()
-	
-	# -----------------------------------------------
-	# stop clients
-	# -----------------------------------------------
-	def stop(self):
-		self.local_client.loop_stop()
-		self.cloud_client.loop_stop()
-		self.local_client.disconnect()
-		self.cloud_client.disconnect()

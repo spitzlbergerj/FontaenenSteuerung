@@ -27,6 +27,12 @@ from FS_ButtonControl_Class import FS_ButtonControl
 class FS_StateMachine:
 
 	# -----------------------------------------------
+	# globale Variablen
+	# -----------------------------------------------
+	logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+	# -----------------------------------------------
 	# Callback execution order
 	# -----------------------------------------------
 	#
@@ -67,19 +73,13 @@ class FS_StateMachine:
 		{'trigger': 'initialize',	'source': 'INIT', 		'dest': 'OFF'},
 
 		{'trigger': 'to_auto',		'source': 'OFF',		'dest': 'AUTO-WAIT',	'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
-		{'trigger': 'to_auto',		'source': 'AUTO',		'dest': None},
-
 		{'trigger': 'to_hand',		'source': 'OFF',		'dest': 'HAND-WAIT',	'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
-		{'trigger': 'to_hand',		'source': 'HAND',		'dest': None},
-
 		{'trigger': 'to_off',		'source': 'HAND',		'dest': 'OFF-WAIT',		'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
 		{'trigger': 'to_off',		'source': 'AUTO',		'dest': 'OFF-WAIT',		'conditions': 'can_transition', 'before': 'activityLED_and_turnMotor'},
-		{'trigger': 'to_off',		'source': 'OFF',		'dest': None},
 
-
-		{'trigger': 'wait',			'source': 'AUTO-WAIT',	'dest': 'AUTO',			'before': 'waiting'},
-		{'trigger': 'wait',			'source': 'HAND-WAIT',	'dest': 'HAND',			'before': 'waiting'},
-		{'trigger': 'wait',			'source': 'OFF-WAIT',	'dest': 'OFF',			'before': 'waiting'},
+		{'trigger': 'wait',			'source': 'AUTO-WAIT',	'dest': 'AUTO',			'conditions': 'can_transition', 'after': 'waiting'},
+		{'trigger': 'wait',			'source': 'HAND-WAIT',	'dest': 'HAND',			'conditions': 'can_transition', 'after': 'waiting'},
+		{'trigger': 'wait',			'source': 'OFF-WAIT',	'dest': 'OFF',			'conditions': 'can_transition', 'after': 'waiting'},
 
 		{'trigger': 'block',		'source': '*',			'dest': 'BLOCKED', 		'before': 'store_state'},
 		{'trigger': 'unblock',		'source': 'BLOCKED',	'dest': None, 			'before': 'restore_state'},
@@ -91,51 +91,41 @@ class FS_StateMachine:
 	# -----------------------------------------------
 	# Initialisierung
 	# -----------------------------------------------
-	def __init__(self, name, config, steuerung):
+	def __init__(self, name, config, steuerung, mqtt_client):
 		# Initialisiert die FS_StateMachine-Klasse.
 		# :param name: Der Name der Maschine (z.B. 'FOB', 'FUB', 'FPA').
 		# :param steuerung: Das Steuerungswörterbuch, das alle LEDs, Taster und Schalter enthält.
+		# :param mqtt_client: Der MQTT-Client zur Kommunikation.
 
-		# Parameter in die Klasse übernehmen
+		logging.getLogger('transitions').setLevel(logging.WARNING)
+
 		self.name = name
 
 		self.wait_time = config['Zeiten']['IntervallStatus']
 		self.stop_delay = config['Zeiten']['MotorStopDelay']
 
 		self.steuerung = steuerung
+		self.mqtt_client = mqtt_client
 
-		# Logging aus dem Hauptprogramm holen
-		self.logger = logging.getLogger(self.__class__.__name__)
+		self.state = 'INIT'
+		self.lock = threading.Lock()
+		self.timer = None
+		self.global_state = 'NORMAL'  # Globaler Zustand für Fehlerbehandlung
 
-		# Logging
-		self.logger.info(f"__init__: name: {name}")
-		self.logger.debug(f"__init__: config: {config} steuerung: {steuerung}")
+		# -----------------------------------------------
+		# Initialisierung der Zustandsmaschine
+		# -----------------------------------------------
+		# self.fountainUnit = Machine(model=self, states=FS_StateMachine.states, transitions=FS_StateMachine.transitions, initial='INIT', on_exception='handle_error', queued=True, send_event=True)
+		self.fountainUnit = Machine(model=self, states=FS_StateMachine.states, transitions=FS_StateMachine.transitions, initial='INIT', queued=True, send_event=True)
+		
+		
+		self.stored_state = None
+		self.last_direction = 0  # Letzte Bewegungsrichtung des Motors
 
 		# Initialisiert die LED- und Motorsteuerung
 		self.led_control = FS_LEDControl({name: steuerung[name]['LEDs']})
 		self.motor_control = FS_MotorControl(config, steuerung)
 		self.button_control = FS_ButtonControl({name: steuerung[name]['Taster']})
-		self.logger.info(f"__init__: LEDs, Motor, Taster erfolgreich initialisiert")
-
-		# setzen von Klassen Variablen
-		self.global_state = 'NORMAL'  # Globaler Zustand für Fehlerbehandlung
-		self.lock = threading.Lock()
-		self.timer = None
-		self.stored_state = None
-		self.last_direction = 0  # Letzte Bewegungsrichtung des Motors
-
-		# Machine Variable setzen und ersten on_enter aufrufen
-		self.state = 'INIT'
-		# manuell Aufrufen notwendig, da Initialisieren mit INIT keinen "on enter" Callback auslöst
-		self.init_leds_on_enter(None)
-		
-		# -----------------------------------------------
-		# Initialisierung der Zustandsmaschine und der weiteren Steuerungen
-		# -----------------------------------------------
-		# self.fountainUnit = Machine(model=self, states=FS_StateMachine.states, transitions=FS_StateMachine.transitions, initial='INIT', on_exception='handle_error', queued=True, send_event=True)
-		self.fountainUnit = Machine(model=self, states=FS_StateMachine.states, transitions=FS_StateMachine.transitions, initial='INIT', queued=True, send_event=True)
-		self.logger.info(f"__init__: State Machine erfolgreich initialisiert")
-
 
 	# ======================================================================================================================
 	# Hilfsfunktionen
@@ -145,7 +135,7 @@ class FS_StateMachine:
 	# get_direction: Ermittle die Drehrichtung
 	# -----------------------------------------------
 	def get_direction(self, source, destination):
-		self.logger.debug(f"get_direction: Status: {self.state} Source: {source} Destination: {destination}")
+		logging.info(f"get_direction: Status: {self.state} Source: {source} Destination: {destination}")
 
 		if source == 'HAND' and destination == 'AUTO-WAIT':
 			return "Hand-Aus-Auto"
@@ -173,12 +163,6 @@ class FS_StateMachine:
 		# dann bereits in transition
 		return 'WAIT' in self.state
 
-	# -----------------------------------------------
-	# get_current_state: Aktueller Status
-	# -----------------------------------------------
-	def get_current_state(self):
-		return self.state
-
 
 	# ======================================================================================================================
 	# Machine Funktionen
@@ -188,145 +172,171 @@ class FS_StateMachine:
 	# handle_error: Fehlerbehandlung der StateMachine
 	# -----------------------------------------------
 	def handle_error(self, event):
-		self.logger.ERROR(f"Exception handle error: {self.state} Error: {event.error} event: {event}")
+		logging.info(f"Exception handle error: {self.state} Error: {event.error} event: {event}")
 
 		# (noch) keine echte Fehlerbehandlung - zunächst Fehler einfach löschen
 		del event.error
 		return True
 
 	# -----------------------------------------------
-	# can_transition: Überprüft, ob die Zustandsmaschine in den nächsten Zustand wechseln kann
+	# can_transition: Überprüft, ob der Motor in den nächsten Zustand wechseln kann
 	# -----------------------------------------------
 	def can_transition(self, event):
 		trigger = event.event.name
 		destination = event.transition.dest
 
-		self.logger.debug(f"can_transition: durch Trigger {trigger} von Status {self.state} nach Status {destination} bei GlobalState {self.global_state}")
+		logging.info(f"can_transition: durch Trigger {trigger} von Status {self.state} nach Status {destination} bei GlobalState {self.global_state}")
 
 		return self.global_state != 'ERROR' and not self.is_in_transition()
 
+	# -----------------------------------------------
+	# handle_command: Verarbeitet eingehende Befehle und löst Zustandsübergänge aus
+	# -----------------------------------------------
+	def handle_command(self, command):
+		with self.lock:
+			if self.global_state == 'ERROR':
+				return  # Ignoriere Befehle im Fehlerzustand
+			if self.state in ['BLOCKED', 'TO_AUTO', 'TO_HAND', 'TO_OFF_FROM_AUTO', 'TO_OFF_FROM_HAND']:
+				return  # Ignoriere Befehle während eines Schaltvorgangs oder wenn blockiert
+
+			try:
+				if command.lower() == 'a':
+					self.set_auto()
+				elif command.lower() == 'h':
+					self.set_hand()
+				elif command == '0':
+					self.set_off()
+				elif command == 'b':
+					self.block()
+				elif command == 'u':
+					self.unblock()
+			except MachineError as e:
+				print(f"Fehler beim Auslösen des Ereignisses {command}: {e}")
 
 	# -----------------------------------------------
-	# init_leds_on_enter: Callback on_enter für Status INIT
-	# Achtung: dieses Callback wird nicht von der Machine aufgerufen, da sie mit Init initialisiert wird und damit nie ein "on enter" ausgelöst wird
+	# check_buttons: checks the state of the buttons and triggers state transitions
 	# -----------------------------------------------
-	def init_leds_on_enter(self, event):
-		self.logger.debug(f"init_leds_on_enter: {self.state}")
+	def check_buttons(self):
+		self.button_control.print_all_buttons()
+		print(f"Zustandsmaschine {self.name} im Status {self.get_current_state()}")
 
-		self.led_control.start_blink_led(self.name, 0, 0.2)
-		self.led_control.start_blink_led(self.name, 1, 0.2)
-		self.led_control.start_blink_led(self.name, 2, 0.2)
-		self.led_control.start_blink_led(self.name, 3, 0.2)
-
-
-	# -----------------------------------------------
-	# init_leds_on_exit: Callback on_exit für den Status INIT
-	# -----------------------------------------------
-	def init_leds_on_exit(self, event):
-		self.logger.debug(f"init_leds_on_enter: {self.state}")
-
-		self.led_control.stop_blink_led(self.name, 0)
-		self.led_control.stop_blink_led(self.name, 1)
-		self.led_control.stop_blink_led(self.name, 2)
-		self.led_control.stop_blink_led(self.name, 3)
+		# Durchlaufen Sie alle Taster der Einheit und prüfen Sie, ob sie gedrückt wurden
+		for i, button in enumerate(self.steuerung[self.name]['Taster']):
+			if not button.value:  # Taster ist gedrückt (value ist False)
+				if i == 0:  # Auto-Taster
+					self.set_auto()
+				elif i == 1:  # Aus-Taster
+					self.set_off()
+				elif i == 2:  # Hand-Taster
+					self.set_hand()
+					
+	def get_current_state(self):
+		return self.state
 
 	# -----------------------------------------------
-	# manage_leds_on_enter: Aktiviere die LEDs je nach aktuellem Zustand
+	# on_enter_TO_AUTO: Aktionen beim Eintritt in den Zustand TO_AUTO
 	# -----------------------------------------------
-	def manage_leds_on_enter(self, event):
-		self.logger.debug(f"manage_leds_on_enter: {self.state}")
-
-		if self.state in ["AUTO", "OFF", "HAND"]: 
-			# aktiviere die LED des Zustands
-			self.led_control.stop_blink_activity_led(self.name)
-			self.led_control.set_led(self.name, self.state.lower(), True)
-		elif self.state in ["AUTO-WAIT", "OFF-WAIT", "HAND-WAIT"]:
-			# aktiviere die LED des Zustands "ohne -WAIT"
-			state_prefix = self.state.split('-')[0]
-			self.led_control.set_led(self.name, state_prefix.lower(), True)
-		elif self.state == "BLOCKED":
-			# alle LED an
-			self.led_control.set_led(self.name, "auto", True)
-			self.led_control.set_led(self.name, "off", True)
-			self.led_control.set_led(self.name, "hand", True)
-		elif self.state == "ERROR":
-			# alle LED aus
-			self.led_control.set_led(self.name, "auto", False)
-			self.led_control.set_led(self.name, "off", False)
-			self.led_control.set_led(self.name, "hand", False)
-		elif self.state == "INIT":
-			# alle LED aus
-			self.led_control.set_led(self.name, "auto", False)
-			self.led_control.set_led(self.name, "off", False)
-			self.led_control.set_led(self.name, "hand", False)
-		else:
-			self.logger.error(f"manage_leds_on_enter: unbekannter Status = {self.state}")
-
+	def on_enter_TO_AUTO(self):
+		self.trigger_motor_control(self.motor_control.string_to_direction("Hand-Aus-Auto"))
+		self.trigger_led_control()
+		self.complete_transition()
 
 	# -----------------------------------------------
-	# manage_leds_on_exit: Aktiviere die LEDs je nach zu verlassendem Zustand
+	# on_enter_TO_HAND: Aktionen beim Eintritt in den Zustand TO_HAND
 	# -----------------------------------------------
-	def manage_leds_on_exit(self, event):
-		self.logger.debug(f"manage_leds_on_exit: {self.state}")
+	def on_enter_TO_HAND(self):
+		self.trigger_motor_control(self.motor_control.string_to_direction("Auto-Aus-Hand"))
+		self.trigger_led_control()
+		self.complete_transition()
 
-		if self.state in ["AUTO", "OFF", "HAND"]: 
-			# aktiviere die LED des Zustands
-			self.led_control.set_led(self.name, self.state.lower(), False)
-		elif self.state in ["AUTO-WAIT", "OFF-WAIT", "HAND-WAIT"]:
-			# nichts zu tun
-			pass
-		elif self.state == ["BLOCKED", "ERROR", "INIT"]:
-			# alle LED an
-			self.led_control.set_led(self.name, "auto", False)
-			self.led_control.set_led(self.name, "off", False)
-			self.led_control.set_led(self.name, "hand", False)
-		else:
-			self.logger.error(f"manage_leds_on_exit: unbekannter Status = {self.state}")
-
-			
 	# -----------------------------------------------
-	# activityLED_and_turnMotor: aktiviere die Activity LED und den Motor
+	# on_enter_TO_OFF_FROM_AUTO: Aktionen beim Eintritt in den Zustand TO_OFF_FROM_AUTO
 	# -----------------------------------------------
-	def activityLED_and_turnMotor(self, event):
-		trigger = event.event.name
-		destination = event.transition.dest
+	def on_enter_TO_OFF_FROM_AUTO(self):
+		self.trigger_motor_control(self.motor_control.string_to_direction("Auto-Aus-Hand"))  # Drehe von Auto nach Aus
+		self.trigger_led_control()
+		self.complete_transition()
 
-		self.logger.debug(f"before_move - activityLED_and_turnMotor: durch Trigger {trigger} von Status {self.state} nach {destination}")
+	# -----------------------------------------------
+	# on_enter_TO_OFF_FROM_HAND: Aktionen beim Eintritt in den Zustand TO_OFF_FROM_HAND
+	# -----------------------------------------------
+	def on_enter_TO_OFF_FROM_HAND(self):
+		self.trigger_motor_control(self.motor_control.string_to_direction("Hand-Aus-Auto"))  # Drehe von Hand nach Aus
+		self.trigger_led_control()
+		self.complete_transition()
+
+	# -----------------------------------------------
+	# start_blinking: starts the blinking of the activity LED
+	# -----------------------------------------------
+	def start_blinking(self):
 		self.led_control.start_blink_activity_led(self.name)
 
-		self.logger.debug(f"Motor drehen in Richtung {self.get_direction(self.state, destination)} Ziel ist Mitte? {'OFF' in destination}")
-
-		self.last_direction = self.motor_control.string_to_direction(self.get_direction(self.state, destination))
-		self.motor_control.move_motor(self.name, self.last_direction, 'OFF' in destination)
-		
-		self.logger.debug("Statuswechsel Warten aufrufen ... ")
-		self.wait()
+	# -----------------------------------------------
+	# stop_blinking: stops the blinking of the activity LED
+	# -----------------------------------------------
+	def stop_blinking(self):
+		self.led_control.stop_blink_activity_led(self.name)
 
 	# -----------------------------------------------
-	# waiting: warte
+	# start_waiting: Startet den Timer für die Warteperiode
 	# -----------------------------------------------
-	def waiting(self, event):
-		trigger = event.event.name
-		destination = event.transition.dest
-		self.logger.debug(f"before_move - waiting: durch Trigger {trigger} von Status {self.state} nach {destination}")
-		time.sleep(self.wait_time)
-		self.logger.debug(f"before_move - waiting: warten beendet")
-		
-	# -----------------------------------------------
-	# can_transition: Überprüft, ob der Motor in den nächsten Zustand wechseln kann
-	# -----------------------------------------------
-	def store_state(self, event):
-		self.stored_state = self.state
-		self.logger.debug(f"Storing current state: {self.stored_state}")
+	def start_waiting(self):
+		if self.timer:
+			self.timer.cancel()
+		self.timer = threading.Timer(self.wait_time, self.wait_complete)
+		self.timer.start()
 
 	# -----------------------------------------------
-	# can_transition: Überprüft, ob der Motor in den nächsten Zustand wechseln kann
+	# trigger_motor_control: sends a message to control the motor
 	# -----------------------------------------------
-	def restore_state(self, event):
-		# Manuelles Setzen des gespeicherten Zustands ohne Auslösen von Callbacks
-		self.logger.debug(f"Restoring stored state: {self.stored_state}")
-		self.fountainUnit.set_state(self.stored_state)
-		self.manage_leds_on_enter()
+	def trigger_motor_control(self, direction):
+		topic = f"motor_control/{self.name}"
+		message = f"move_to_{self.state.lower()}"
+		# self.mqtt_client.publish(topic, message)
+		print(f"Motorsteuerung für {self.name} im Zustand {self.state} ausgelöst")
+
+		# Tatsächliche Motorsteuerung
+		self.motor_control.move_motor(self.name, direction)
+		self.last_direction = direction
+
+		# Startet einen Thread, um den Motor nach dem Delay zu stoppen
+		threading.Thread(target=self._stop_motor_after_delay, args=(direction,)).start()
+
+	# -----------------------------------------------
+	# _stop_motor_after_delay: stops the motor after a delay if needed
+	# -----------------------------------------------
+	def _stop_motor_after_delay(self, direction):
+		time.sleep(self.stop_delay)
+		self.motor_control.stop_motor(self.name)
+		self._check_mid_position(direction)
+
+	# -----------------------------------------------
+	# _check_mid_position: checks if the motor reached the middle position and performs fine-tuning if necessary
+	# -----------------------------------------------
+	def _check_mid_position(self, direction):
+		if self.motor_control.is_in_mid_position(self.name):
+			self._perform_fine_tuning(direction)
+
+	# -----------------------------------------------
+	# _perform_fine_tuning: performs fine-tuning of the motor position
+	# -----------------------------------------------
+	def _perform_fine_tuning(self, direction):
+		# Feineinstellung des Motors gemäß der Testlogik in MotorTest.py
+		steps = self.motor_control.get_correction_steps(self.name, direction)
+		self.motor_control.perform_fine_tuning(self.name, steps, direction)
+
+	# -----------------------------------------------
+	# trigger_led_control: sends a message to control the LEDs
+	# -----------------------------------------------
+	def trigger_led_control(self):
+		topic = f"led_control/{self.name}"
+		if self.state in ['TO_AUTO', 'TO_HAND', 'TO_OFF_FROM_AUTO', 'TO_OFF_FROM_HAND']:
+			message = "blink_activity_led"
+		else:
+			message = f"set_led_{self.state.lower()}"
+			self.led_control.set_led(self.name, self.state.lower(), True)
+		#self.mqtt_client.publish(topic, message)
+		print(f"LED-Ansteuerung für {self.name} im Zustand {self.state} ausgelöst")
 
 	# -----------------------------------------------
 	# set_global_error: Setzt den globalen Zustand auf ERROR
@@ -342,10 +352,10 @@ class FS_StateMachine:
 		self.button_control.print_all_buttons()
 		print(f"Motor: {self.name}")
 		self.motor_control.move_motor(self.name, 1, True)  # Drehe von Auto nach Aus
-		#time.sleep(0.5)  # Wartezeit
+		time.sleep(3)  # Beispielwartezeit für Bewegung
 		self.motor_control.stop_motor(self.name)
-		#time.sleep(0.5)  # Wartezeit
+		time.sleep(1)  # Wartezeit zwischen den Bewegungen
 		self.motor_control.move_motor(self.name, -1, True)  # Drehe von Hand nach Aus
-		#time.sleep(0.5)  # Wartezeit
+		time.sleep(3)  # Beispielwartezeit für Bewegung
 		self.motor_control.stop_motor(self.name)
-		self.initialize()  # Zustandsmaschine auf 'OFF' setzen
+		self.initialize()  # Zustandsmaschine auf 'OFF' setzen# also 

@@ -17,6 +17,8 @@
 import argparse
 import logging
 import time
+import threading
+
 import board
 import busio
 import digitalio
@@ -31,10 +33,8 @@ from FS_Files_Class import FS_Files
 from FS_StateMachine_Class import FS_StateMachine
 
 # -----------------------------------------------
-# globale Variablen
+# globale Variablen und Initialisierungen
 # -----------------------------------------------
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 # Initialize the I2C bus:
 i2c = busio.I2C(board.SCL, board.SDA)
 
@@ -44,8 +44,46 @@ mcp_devices = {
 	"0x21": MCP23017(i2c, address=0x21)
 }
 
+# Hardware Konfiguration, vor allem GPIO Pins
 steuerung = {}
 
+# Threads, die laufen pro StageMachine für die Statusübergänge
+running_threads = {}
+
+# Stack für empfangene MQTT Nachrichten
+message_stack = []
+
+# Globale Logging-Konfiguration
+def configure_logging(program_level="DEBUG", transitions_level="ERROR"):
+	logging.basicConfig(level=program_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+	logging.getLogger('transitions').setLevel(transitions_level)
+
+# -----------------------------------------------
+# Thread Steuerung für die Statuswechsel
+# -----------------------------------------------
+def starteThreadSingle(key, trigger):
+	def run():
+		logging.info(">>>>>>>>>>>>>>>>> ThreadSingle")
+		trigger()
+		del running_threads[key]
+	thread = threading.Thread(target=run)
+	running_threads[key] = thread
+	thread.start()
+
+def starteThreadMulti(key, trigger1, trigger2):
+	def run():
+		logging.info(">>>>>>>>>>>>>>>>>>>>>>>>>> ThreadMulti >>>> 1")
+		trigger1()
+		logging.info(">>>>>>>>>>>>>>>>>>>>>>>>>> ThreadMulti >>>> 2")
+		trigger2()
+		del running_threads[key]
+	thread = threading.Thread(target=run)
+	running_threads[key] = thread
+	thread.start()
+
+# -----------------------------------------------
+# Initialisiereung der GPIO Pins
+# -----------------------------------------------
 # Funktion zur Initialisierung der Pins basierend auf der Konfigurationsdatei
 def initialize_pins(config):
 	global steuerung
@@ -93,7 +131,16 @@ def initialize_pins(config):
 	for led in steuerung["ERR"]["LEDs"]:
 		led.switch_to_output(value=False)
 
+# -----------------------------------------------
+# Abfrage der Taster
+# -----------------------------------------------
 
+def check_buttons(steuerung):
+	for key in ["FPA", "FUB", "FOB"]:
+		for i, button in enumerate(steuerung[key]["Taster"]):
+			if not button.value:
+				return key, i
+	return None, None
 
 # -----------------------------------------------
 # Test der LEDs
@@ -144,48 +191,77 @@ def display_button_status(steuerung):
 
 	return status
 
-def check_buttons(steuerung, duration):
+def buttonsTest(steuerung, duration):
 	start_time = time.time()
 	while time.time() - start_time < duration:
-		for key in ["FPA", "FUB", "FOB"]:
-			for i, button in enumerate(steuerung[key]["Taster"]):
-				if not button.value:
-					print(f"Taster {key} {['Auto', 'Aus', 'Hand'][i]} gedrückt!")
-					# Zugehörige LED einschalten
-					steuerung[key]["LEDs"][i + 1].value = True
-					# Active LED blinken lassen
-					blink_led(steuerung[key]["LEDs"][0], 5, 0.05)
-					# Zugehörige LED ausschalten nach dem Blinken
-					steuerung[key]["LEDs"][i + 1].value = False
+		key, i = check_buttons(steuerung)
+		if key != None and i != None:
+			print(f"Taster {key} {['Auto', 'Aus', 'Hand'][i]} gedrückt!")
+			# Zugehörige LED einschalten
+			steuerung[key]["LEDs"][i + 1].value = True
+			# Active LED blinken lassen
+			blink_led(steuerung[key]["LEDs"][0], 5, 0.05)
+			# Zugehörige LED ausschalten nach dem Blinken
+			steuerung[key]["LEDs"][i + 1].value = False
 		time.sleep(0.1)  
 
 # -----------------------------------------------
 # Callback-Funktion zur Verarbeitung von empfangenen MQTT-Nachrichten
 # -----------------------------------------------
-def command_callback(topic, message):
-	# Parst das empfangene Kommando und extrahiert den Motorname und den Befehl
-	motor_name, command = parse_command(message)
-	if motor_name in motors:
-		motors[motor_name].handle_command(command)
-	else:
-		logging.warning(f"Unbekannter Motorname: {motor_name}")
+def command_callback(client, userdata, msg):
+	global message_stack
+	logging.debug(f"Received `{msg.payload.decode()}` from `{msg.topic}` topic")
+
+	message_stack.append((msg.topic, msg.payload.decode()))
+
+
+	#fountainUnit_name, command = parse_command(msg.payload.decode())
+	#if fountainUnit_name in fountainUnits:
+	#	fountainUnits[fountainUnit_name].handle_command(command)
+	#else:
+	#	logging.warning(f"Unbekannter Fontänenname: {fountainUnit_name}")
 
 # -----------------------------------------------
 # Funktion zur Befehlsanalyse
 # -----------------------------------------------
 def parse_command(message):
-	# Parst eine empfangene Nachricht, um den Motorname und den Befehl zu extrahieren
-	parts = message.split(':')
-	if len(parts) != 2:
-		logging.error("Ungültiges Nachrichtenformat")
-		return None, None
-	return parts[0], parts[1]
+    # Parst eine empfangene Nachricht, um den Fontänenname und den Befehl zu extrahieren
+    parts = message.split(':')
+    if len(parts) != 2:
+        logging.error("Ungültiges Nachrichtenformat")
+        return None, None
+
+    fountain_name = parts[0].upper()
+    command_str = parts[1].lower()
+
+    command_map = {
+        'auto': 0,
+        'aus': 1,
+        'hand': 2
+    }
+
+    if command_str not in command_map:
+        logging.error("Ungültiger Befehl")
+        return None, None
+
+    command = command_map[command_str]
+    return fountain_name, command
 
 
+def fountainUnit_name_to_number(fountainUnit_name):
+	# Wandelt den Fontänennamen in die entsprechende Fontänennummer um
+	mapping = {
+		'FOB': 1,
+		'FUB': 2,
+		'FPA': 3
+	}
+	return mapping.get(fountainUnit_name, None)  # Standardmäßig zu 1, wenn der Name nicht gefunden wird
+	
 # -----------------------------------------------
 # Hauptfunktion
 # -----------------------------------------------
 def main():
+	global message_stack
 	# -----------------------------------------------
 	# Argumente und Parameter abfragen
 	# -----------------------------------------------
@@ -203,6 +279,12 @@ def main():
 	config = fs_files.config
 
 	# -----------------------------------------------
+	# Logging konfigurieren
+	# -----------------------------------------------
+
+	configure_logging(program_level="DEBUG", transitions_level="DEBUG")
+
+	# -----------------------------------------------
 	# Initialisiere die Taster und Switches
 	# -----------------------------------------------
 	initialize_pins(config)
@@ -218,42 +300,37 @@ def main():
 	if args.taster_test:
 		display_button_status(steuerung)
 		print(f"Taster Test ab jetzt für {args.taster_test} Sekunden")
-		check_buttons(steuerung, args.taster_test)
+		buttonsTest(steuerung, args.taster_test)
 		print("Taster Test abgeschlossen")
 
-
-
 	cloud_mqtt_config = config['MQTT Cloud']
-	local_mqtt_config = config['MQTT lokal']
 
 	# Logging der geladenen Konfiguration
-	#logging.info(f"Cloud MQTT-Konfiguration: {cloud_mqtt_config}")
-	#logging.info(f"Lokale MQTT-Konfiguration: {local_mqtt_config}")
-	#logging.info(f"Wartezeit für Status-Intervalle: {config['Zeiten']['IntervallStatus']} Sekunden")
-	#logging.info(f"Motor-Stop-Verzögerung: {config['Zeiten']['MotorStopDelay']} Sekunden")
-	#logging.info(f"LED-Konfiguration: {config['LEDs']}")
-	#logging.info(f"Motor-Konfiguration: {config['Microswitch']}")
-	#logging.info(f"Taster-Konfiguration: {config['Taster']}")
+	logging.debug(f"Cloud MQTT-Konfiguration: {cloud_mqtt_config}")
+	logging.debug(f"Wartezeit für Status-Intervalle: {config['Zeiten']['IntervallStatus']} Sekunden")
+	logging.debug(f"Motor-Stop-Verzögerung: {config['Zeiten']['MotorStopDelay']} Sekunden")
+	logging.debug(f"LED-Konfiguration: {config['LEDs']}")
+	logging.debug(f"Motor-Konfiguration: {config['Microswitch']}")
+	logging.debug(f"Taster-Konfiguration: {config['Taster']}")
 	
 	# MQTT-Client initialisieren
-	#fs_comm = FS_Communication(local_mqtt_config, cloud_mqtt_config, 'Fontaenensteuerung', command_callback)
-	fs_comm = None
+	mqtt = FS_Communication(cloud_mqtt_config, 'Fontaenensteuerung', command_callback)
 	
-	# Zustandsmaschinen für die Motoren initialisieren
-	global motors
-	motors = {
-		'FOB': FS_StateMachine('FOB', config, steuerung, fs_comm),
-		'FUB': FS_StateMachine('FUB', config, steuerung, fs_comm),
-		'FPA': FS_StateMachine('FPA', config, steuerung, fs_comm)
+	# Zustandsmaschinen für die Fontänen initialisieren
+	global fountainUnits
+	fountainUnits = {
+		'FOB': FS_StateMachine('FOB', config, steuerung),
+		'FUB': FS_StateMachine('FUB', config, steuerung),
+		'FPA': FS_StateMachine('FPA', config, steuerung)
 	}
 	
-	logging.info("Zustandsmaschinen für die Motoren initialisiert")
+	logging.info("Zustandsmaschinen für die Fontänen initialisiert")
 
 	# Initialisierung der Motoren beim Starten
 	logging.info(f"initialisiere Motorstellung beim Starten")
-	for motor_name, motor in motors.items():
-		logging.info(f"-- Motor: {motor_name}")
-		motor.initialize_motor()
+	for fountainUnit_name, fountainUnit in fountainUnits.items():
+		logging.info(f"-- Fontäne: {fountainUnit_name}")
+		fountainUnit.initialize_motor()
 	
 	logging.info("Motoren initialisiert")
 
@@ -265,8 +342,61 @@ def main():
 	# Regelmäßige Abfrage der Taster
 	interval_taster = config['Zeiten'].get('IntervallTaster', 0.05)
 	while True:
-		for motor in motors.values():
-			motor.check_buttons()
+		key, i = check_buttons(steuerung)
+		if key in fountainUnits:
+			state_machine = fountainUnits[key]
+
+			if key not in running_threads and not 'WAIT' in state_machine.get_current_state():
+				# StatetMachine ist NICHT in einem Umschaltvorgang
+				if i == 0: # Taster Automatik
+					if state_machine.get_current_state() == "HAND":
+						starteThreadMulti(key, state_machine.to_off, state_machine.to_auto)
+					else:
+						starteThreadSingle(key, state_machine.to_auto)
+
+				elif i == 1: # Taster Aus
+					starteThreadSingle(key, state_machine.to_off)
+
+				elif i == 2: # Taster Hand/ein
+					if state_machine.get_current_state() == "AUTO":
+						starteThreadMulti(key, state_machine.to_off, state_machine.to_hand)
+					else:
+						starteThreadSingle(key, state_machine.to_hand)
+
+				else:
+					print(f"Unbekannter Zustand: {i}")
+
+		# Abarbeiten der eingetroffenen MQTT Nachrichten
+		if message_stack:
+			logging.debug("Message Stack enthät Nachricht")
+			topic, message = message_stack.pop(0)  # Erste Nachricht aus dem Stack entfernen und verarbeiten
+			logging.debug(f"Verarbeite Message {message} mit Topic {topic} ")
+			fountainUnit_name, i = parse_command(message)
+			logging.debug(f"Betrifft Fontäne {fountainUnit_name} Anweisung {i}")
+
+			if fountainUnit_name in fountainUnits:
+				state_machine = fountainUnits[fountainUnit_name]
+
+				if key not in running_threads and not 'WAIT' in state_machine.get_current_state():
+					# StatetMachine ist NICHT in einem Umschaltvorgang
+					if i == 0:
+						if state_machine.get_current_state() == "HAND":
+							starteThreadMulti(key, state_machine.to_off, state_machine.to_auto)
+						else:
+							starteThreadSingle(key, state_machine.to_auto)
+
+					elif i == 1:
+						starteThreadSingle(key, state_machine.to_off)
+
+					elif i == 2:
+						if state_machine.get_current_state() == "AUTO":
+							starteThreadMulti(key, state_machine.to_off, state_machine.to_hand)
+						else:
+							starteThreadSingle(key, state_machine.to_hand)
+
+					else:
+						print(f"Unbekannter Zustand: {i}")
+
 		time.sleep(interval_taster)
 
 if __name__ == "__main__":
