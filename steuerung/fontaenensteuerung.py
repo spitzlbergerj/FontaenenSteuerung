@@ -374,7 +374,25 @@ def main():
 			fountainUnit_name, i = parse_command(message)
 			logging.debug(f"Betrifft Fontäne {fountainUnit_name} Anweisung {i}")
 
-			if fountainUnit_name in fountainUnits:
+			if fountainUnit_name == '*':
+				# Befehl betrifft alle Fontänen
+				for unit_name, state_machine in fountainUnits.items():
+					if unit_name not in running_threads and not 'WAIT' in state_machine.get_current_state():
+						if i == 0:
+							if state_machine.get_current_state() == "HAND":
+								starteThreadMulti(unit_name, state_machine.to_off, state_machine.to_auto)
+							else:
+								starteThreadSingle(unit_name, state_machine.to_auto)
+						elif i == 1:
+							starteThreadSingle(unit_name, state_machine.to_off)
+						elif i == 2:
+							if state_machine.get_current_state() == "AUTO":
+								starteThreadMulti(unit_name, state_machine.to_off, state_machine.to_hand)
+							else:
+								starteThreadSingle(unit_name, state_machine.to_hand)
+						else:
+							print(f"Unbekannter Zustand: {i}")
+			elif fountainUnit_name in fountainUnits:
 				state_machine = fountainUnits[fountainUnit_name]
 
 				if key not in running_threads and not 'WAIT' in state_machine.get_current_state():
