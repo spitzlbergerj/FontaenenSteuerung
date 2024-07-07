@@ -52,7 +52,7 @@ MQTT_BROKER = config['MQTT Cloud']['web_address']
 MQTT_PORT = config['MQTT Cloud']['Port']
 MQTT_USER = config['MQTT Cloud']['user']
 MQTT_PASSWORD = config['MQTT Cloud']['password']
-MQTT_TOPIC = config['MQTT Cloud']['topic']
+MQTT_TOPIC = config['MQTT Cloud']['topic_receive']
 MQTT_CLIENT_ID = f"fountainController-{random.randint(0, 1000)}"
 
 print(MQTT_BROKER)

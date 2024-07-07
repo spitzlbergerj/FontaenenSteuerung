@@ -275,7 +275,7 @@ class FS_StateMachine:
 		elif self.state in ["AUTO-WAIT", "OFF-WAIT", "HAND-WAIT"]:
 			# nichts zu tun
 			pass
-		elif self.state == ["BLOCKED", "ERROR", "INIT"]:
+		elif self.state in ["BLOCKED", "ERROR", "INIT"]:
 			# alle LED an
 			self.led_control.set_led(self.name, "auto", False)
 			self.led_control.set_led(self.name, "off", False)
@@ -325,8 +325,9 @@ class FS_StateMachine:
 	def restore_state(self, event):
 		# Manuelles Setzen des gespeicherten Zustands ohne Auslösen von Callbacks
 		self.logger.debug(f"Restoring stored state: {self.stored_state}")
+		self.manage_leds_on_exit(event)
 		self.fountainUnit.set_state(self.stored_state)
-		self.manage_leds_on_enter()
+		self.manage_leds_on_enter(event)
 
 	# -----------------------------------------------
 	# set_global_error: Setzt den globalen Zustand auf ERROR

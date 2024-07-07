@@ -55,6 +55,12 @@ class FS_LEDControl:
 		if index is not None:
 			self.leds[unit][index].value = value
 
+	def get_led_status(self, unit):
+		status = {}
+		for index, led in enumerate(self.leds[unit]):
+			status[index] = led.value
+		return status
+
 	def _blink_led(self, led, stop_event, interval=0.5):
 		self.logger.debug(f"_blink_led")
 		while not stop_event.is_set():

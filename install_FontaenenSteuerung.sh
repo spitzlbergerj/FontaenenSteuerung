@@ -946,3 +946,11 @@ cd "$HOME"
 # --------------------------------------------------------------------------
 
 next_steps
+
+
+sudo apt install cockpit
+sudo systemctl enable --now cockpit.socket
+
+sudo nano /etc/systemd/system/fontaenensteuerung.service
+
+journalctl -u fontaenensteuerung.service -f

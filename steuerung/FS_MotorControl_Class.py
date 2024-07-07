@@ -137,3 +137,12 @@ class FS_MotorControl:
 			time.sleep(0.02)
 			motor.throttle = 0
 			time.sleep(0.02)
+
+	def get_microswitch_status(self, unit):
+		if unit not in self.microswitches:
+			self.logger.debug(f"Einheit {unit} hat keine definierten Microswitches.")
+			return {}
+		status = {}
+		status['nc'] = "geschlossen" if not self.microswitches[unit]['nc'].value else "offen"
+		status['no'] = "geschlossen" if not self.microswitches[unit]['no'].value else "offen"
+		return status

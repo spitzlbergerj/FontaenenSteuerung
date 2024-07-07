@@ -4,7 +4,8 @@
       "port": 8883,
       "user": "DerBenutzer",
       "password": "DasGeheimesPasswort",
-      "topic":"fountain"
+      "topic_receive":"fountain/task",
+      "topic_send":"fountain/status"
     },
     "LEDs": {
       "FOB": {

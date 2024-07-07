@@ -33,7 +33,7 @@ class FS_Communication:
 		try:
 			self.logger.debug("Attempting to connect to the broker...")
 			self.client = self.connect_mqtt(cloud_config)
-			self.subscribe(self.client, self.typwandlung(cloud_config['topic'], "str"))
+			self.subscribe(self.client, self.typwandlung(cloud_config['topic_receive'], "str"))
 			self.client.loop_start()
 
 			self.logger.info("MQTT Cloud etabliert")

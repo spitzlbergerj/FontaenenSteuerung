@@ -18,6 +18,8 @@ import argparse
 import logging
 import time
 import threading
+import signal
+import sys
 
 import board
 import busio
@@ -57,6 +59,17 @@ message_stack = []
 def configure_logging(program_level="DEBUG", transitions_level="ERROR"):
 	logging.basicConfig(level=program_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 	logging.getLogger('transitions').setLevel(transitions_level)
+
+
+def signal_handler(sig, frame):
+	logging.info("Programm wird beendet. Schalte alle LEDs aus.")
+	for unit_name, state_machine in fountainUnits.items():
+		state_machine.led_control.set_led(unit_name, "active", False)
+		state_machine.led_control.set_led(unit_name, "auto", False)
+		state_machine.led_control.set_led(unit_name, "off", False)
+		state_machine.led_control.set_led(unit_name, "hand", False)
+	sys.exit(0)
+
 
 # -----------------------------------------------
 # Thread Steuerung für die Statuswechsel
@@ -225,27 +238,96 @@ def command_callback(client, userdata, msg):
 # Funktion zur Befehlsanalyse
 # -----------------------------------------------
 def parse_command(message):
-    # Parst eine empfangene Nachricht, um den Fontänenname und den Befehl zu extrahieren
-    parts = message.split(':')
-    if len(parts) != 2:
-        logging.error("Ungültiges Nachrichtenformat")
-        return None, None
+	message = message.lower()
 
-    fountain_name = parts[0].upper()
-    command_str = parts[1].lower()
+	# Sonderkommandos
+	if message == 'shutdown':
+		return 'shutdown', None
+	elif message == 'hey':
+		return 'hey', None
 
-    command_map = {
-        'auto': 0,
-        'aus': 1,
-        'hand': 2
-    }
+	if len(message) != 3:
+		logging.error("Ungültiges Nachrichtenformat")
+		return None, None
 
-    if command_str not in command_map:
-        logging.error("Ungültiger Befehl")
-        return None, None
+	command_map = {
+		'a': 0,
+		'0': 1,
+		'h': 2,
+		'1': 2,
+		'b': 'block',
+		'u': 'unblock',
+		'-': None  # Kein Befehl
+	}
 
-    command = command_map[command_str]
-    return fountain_name, command
+	# Überprüfe jedes Zeichen und konvertiere es gemäß dem command_map
+	commands = []
+	for c in message:
+		command = command_map.get(c)
+		if command is None and c != '-':
+			logging.error("Ungültiger Befehl")
+			return None, None
+		commands.append(command)
+
+	return commands
+
+def handle_command(state_machine, command, key):
+	current_state = state_machine.get_current_state()
+	
+	# Keine Aktion ausführen, wenn der aktuelle Zustand ERROR ist
+	if current_state == "ERROR":
+		logging.debug(f"Keine Aktion für {key} im Zustand {current_state}")
+		return
+	
+	# Keine Aktion ausführen, wenn der aktuelle Zustand BLOCKED ist, außer bei 'unblock'
+	if current_state == "BLOCKED" and command != 'unblock':
+		logging.debug(f"Keine Aktion für {key} im Zustand {current_state} außer 'unblock'")
+		return
+	
+	if command == 0:
+		if state_machine.get_current_state() == "HAND":
+			starteThreadMulti(key, state_machine.to_off, state_machine.to_auto)
+		else:
+			starteThreadSingle(key, state_machine.to_auto)
+	elif command == 1:
+		starteThreadSingle(key, state_machine.to_off)
+	elif command == 2:
+		if state_machine.get_current_state() == "AUTO":
+			starteThreadMulti(key, state_machine.to_off, state_machine.to_hand)
+		else:
+			starteThreadSingle(key, state_machine.to_hand)
+	elif command == 'block':
+		starteThreadSingle(key, state_machine.block)
+	elif command == 'unblock':
+		starteThreadSingle(key, state_machine.unblock)
+	elif command is None:
+		logging.debug(f"Keine Aktion für {key}")
+	else:
+		logging.error(f"Unbekannter Befehl für {key}: {command}")
+
+
+def build_status_message(fountainUnits):
+	message_lines = []
+
+	# Gesamtstatus
+	global_state = 'NORMAL' if all(f.global_state != 'ERROR' for f in fountainUnits.values()) else 'ERROR'
+	message_lines.append(f"Gesamtstatus: {global_state}")
+
+	# Status jeder StateMachine
+	for unit_name, state_machine in fountainUnits.items():
+		message_lines.append(f"{unit_name} Status: {state_machine.get_current_state()}")
+
+		# Leuchtende LEDs
+		led_status = state_machine.led_control.get_led_status(unit_name)
+		led_lines = [f"{unit_name} LEDs:"] + [f"  LED {index}: {'An' if status else 'Aus'}" for index, status in led_status.items()]
+		message_lines.extend(led_lines)
+
+		# Position der Mikroschalter
+		switch_status = state_machine.motor_control.get_microswitch_status(unit_name)
+		switch_lines = [f"{unit_name} Mikroschalter:"] + [f"  {key}: {status}" for key, status in switch_status.items()]
+		message_lines.extend(switch_lines)
+
+	return "\n".join(message_lines)
 
 
 def fountainUnit_name_to_number(fountainUnit_name):
@@ -256,12 +338,21 @@ def fountainUnit_name_to_number(fountainUnit_name):
 		'FPA': 3
 	}
 	return mapping.get(fountainUnit_name, None)  # Standardmäßig zu 1, wenn der Name nicht gefunden wird
-	
+
+
 # -----------------------------------------------
 # Hauptfunktion
 # -----------------------------------------------
 def main():
 	global message_stack
+	global fountainUnits
+	
+	# Signal-Handler für Ctrl-C
+	signal.signal(signal.SIGINT, signal_handler)
+
+	# Signal-Handler für SIGTERM, das dem Prozess geschickt wird z.B. bei shutdown
+	signal.signal(signal.SIGTERM, signal_handler)
+
 	# -----------------------------------------------
 	# Argumente und Parameter abfragen
 	# -----------------------------------------------
@@ -317,7 +408,7 @@ def main():
 	mqtt = FS_Communication(cloud_mqtt_config, 'Fontaenensteuerung', command_callback)
 	
 	# Zustandsmaschinen für die Fontänen initialisieren
-	global fountainUnits
+	
 	fountainUnits = {
 		'FOB': FS_StateMachine('FOB', config, steuerung),
 		'FUB': FS_StateMachine('FUB', config, steuerung),
@@ -348,72 +439,32 @@ def main():
 
 			if key not in running_threads and not 'WAIT' in state_machine.get_current_state():
 				# StatetMachine ist NICHT in einem Umschaltvorgang
-				if i == 0: # Taster Automatik
-					if state_machine.get_current_state() == "HAND":
-						starteThreadMulti(key, state_machine.to_off, state_machine.to_auto)
-					else:
-						starteThreadSingle(key, state_machine.to_auto)
-
-				elif i == 1: # Taster Aus
-					starteThreadSingle(key, state_machine.to_off)
-
-				elif i == 2: # Taster Hand/ein
-					if state_machine.get_current_state() == "AUTO":
-						starteThreadMulti(key, state_machine.to_off, state_machine.to_hand)
-					else:
-						starteThreadSingle(key, state_machine.to_hand)
-
-				else:
-					print(f"Unbekannter Zustand: {i}")
+				handle_command(state_machine, i, key)
 
 		# Abarbeiten der eingetroffenen MQTT Nachrichten
 		if message_stack:
 			logging.debug("Message Stack enthät Nachricht")
 			topic, message = message_stack.pop(0)  # Erste Nachricht aus dem Stack entfernen und verarbeiten
 			logging.debug(f"Verarbeite Message {message} mit Topic {topic} ")
-			fountainUnit_name, i = parse_command(message)
-			logging.debug(f"Betrifft Fontäne {fountainUnit_name} Anweisung {i}")
+			commands = parse_command(message)
 
-			if fountainUnit_name == '*':
-				# Befehl betrifft alle Fontänen
-				for unit_name, state_machine in fountainUnits.items():
-					if unit_name not in running_threads and not 'WAIT' in state_machine.get_current_state():
-						if i == 0:
-							if state_machine.get_current_state() == "HAND":
-								starteThreadMulti(unit_name, state_machine.to_off, state_machine.to_auto)
-							else:
-								starteThreadSingle(unit_name, state_machine.to_auto)
-						elif i == 1:
-							starteThreadSingle(unit_name, state_machine.to_off)
-						elif i == 2:
-							if state_machine.get_current_state() == "AUTO":
-								starteThreadMulti(unit_name, state_machine.to_off, state_machine.to_hand)
-							else:
-								starteThreadSingle(unit_name, state_machine.to_hand)
-						else:
-							print(f"Unbekannter Zustand: {i}")
-			elif fountainUnit_name in fountainUnits:
-				state_machine = fountainUnits[fountainUnit_name]
-
-				if key not in running_threads and not 'WAIT' in state_machine.get_current_state():
-					# StatetMachine ist NICHT in einem Umschaltvorgang
-					if i == 0:
-						if state_machine.get_current_state() == "HAND":
-							starteThreadMulti(key, state_machine.to_off, state_machine.to_auto)
-						else:
-							starteThreadSingle(key, state_machine.to_auto)
-
-					elif i == 1:
-						starteThreadSingle(key, state_machine.to_off)
-
-					elif i == 2:
-						if state_machine.get_current_state() == "AUTO":
-							starteThreadMulti(key, state_machine.to_off, state_machine.to_hand)
-						else:
-							starteThreadSingle(key, state_machine.to_hand)
-
-					else:
-						print(f"Unbekannter Zustand: {i}")
+			if commands == ('shutdown', None):
+				logging.info("Raspberry shutdown now")
+				# Hier den Raspberry Pi herunterfahren
+				# os.system('sudo shutdown now')
+			elif commands == ('hey', None):
+				logging.info("Statusabfrage")
+				# Erstelle und sende die Statusnachricht
+				status_message = build_status_message(fountainUnits)
+				mqtt.publish(cloud_mqtt_config['topic_send'], status_message)
+			elif commands:
+				for unit, command in zip(['FOB', 'FUB', 'FPA'], commands):
+					if unit in fountainUnits:
+						state_machine = fountainUnits[unit]
+						if command is not None and unit not in running_threads and not 'WAIT' in state_machine.get_current_state():
+							handle_command(state_machine, command, unit)
+			else:
+				logging.warning(f"Ungültiger Befehl: {message}")
 
 		time.sleep(interval_taster)
 
