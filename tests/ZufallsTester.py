@@ -63,7 +63,7 @@ MQTT_BROKER = config['MQTT Cloud']['web_address']
 MQTT_PORT = config['MQTT Cloud']['port']
 MQTT_USER = config['MQTT Cloud']['user']
 MQTT_PASSWORD = config['MQTT Cloud']['password']
-MQTT_TOPIC = config['MQTT Cloud']['topic_send']
+MQTT_TOPIC = config['MQTT Cloud']['topic_receive']
 MQTT_CLIENT_ID = f"fountainController-{random.randint(0, 1000)}"
 
 client = None
@@ -106,10 +106,10 @@ try:
 		print(f"Sende Nachricht: {message}")
 
 		# Nachricht veröffentlichen
-		# client.publish(MQTT_TOPIC, message)
+		client.publish(MQTT_TOPIC, message)
 
 		# Zufällige Wartezeit zwischen den Nachrichten
-		wait_time = random.uniform(20, 80)  # Wartezeit zwischen 20 und 80 Sekunden
+		wait_time = random.uniform(10, 30)  # Wartezeit zwischen 20 und 80 Sekunden
 		
 		# Zufällige Wartezeit zwischen 10 Minuten und 2 Stunden
 		#wait_time = random.uniform(600, 7200)  # Wartezeit zwischen 600 Sekunden (10 Minuten) und 7200 Sekunden (2 Stunden)

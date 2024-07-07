@@ -1,13 +1,11 @@
 {
     "MQTT Cloud": {
-      "web_address": "https://fbaaeb99.ala.us-east-1.emqxsl.com/",
-      "Port": 8883,
-      "user": "FontaenenSteuerungMQTT",
-      "password": "2hHihvqNK9GQ!YakaDqw"
-    },
-    "MQTT lokal": {
-      "Adresse": "localhost",
-      "Port": 1883
+      "web_address": "fbaaeb99.ala.us-east-1.emqxsl.com",
+      "port": 8883,
+      "user": "FontPiMQTT",
+      "password": "xkfjxbXzi6BkBRPVWQ7o",
+      "topic_receive":"fountain/task",
+      "topic_send":"fountain/status"
     },
     "LEDs": {
       "FOB": {
@@ -88,11 +86,11 @@
       }
     },
     "Zeiten": {
-      "IntervallStatus": 60,
-      "IntervallTaster": 1,
+      "IntervallStatus": 5,
+      "IntervallTaster": 0.2,
       "IntervallMicroswitch": 0.01,
       "IntervallMittelSchritte": 0.02,
-      "MotorStopDelay":2.0
+      "MotorStopDelay":1.5
     },
     "Geschwindigkeit": {
       "FOB": 0.5,
